@@ -67,6 +67,87 @@ interface ChatHistoryItem {
   text: string;
 }
 
+const OPENROUTER_MODELS: Record<'fast' | 'general' | 'complex', string[]> = {
+  fast: [
+    'google/gemini-2.0-flash-exp:free',
+    'meta-llama/llama-3.2-3b-instruct:free',
+    'mistralai/mistral-7b-instruct:free',
+    'openrouter/auto',
+  ],
+  general: [
+    'meta-llama/llama-3.3-70b-instruct:free',
+    'google/gemini-2.0-flash-exp:free',
+    'qwen/qwen-2.5-72b-instruct:free',
+    'mistralai/mistral-small-24b-instruct-2501:free',
+    'openrouter/auto',
+  ],
+  complex: [
+    'deepseek/deepseek-chat',
+    'meta-llama/llama-3.3-70b-instruct:free',
+    'google/gemini-2.0-flash-exp:free',
+    'qwen/qwen-2.5-72b-instruct:free',
+    'openrouter/auto',
+  ],
+};
+
+async function callOpenRouter(
+  apiKey: string,
+  systemInstruction: string,
+  history: ChatHistoryItem[],
+  message: string,
+  models: string[]
+): Promise<{ text: string; modelUsed: string; fallbackNotice?: string }> {
+  const messages: Array<{ role: 'system' | 'user' | 'assistant'; content: string }> = [
+    { role: 'system', content: systemInstruction },
+  ];
+
+  if (Array.isArray(history)) {
+    for (const item of history) {
+      if (item && typeof item.text === 'string' && item.text.trim()) {
+        messages.push({
+          role: item.role === 'model' ? 'assistant' : 'user',
+          content: item.text,
+        });
+      }
+    }
+  }
+
+  messages.push({ role: 'user', content: message });
+
+  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      'Content-Type': 'application/json',
+      'HTTP-Referer': 'https://froggo.local',
+      'X-Title': 'Froggo AI Legal Assistant',
+    },
+    body: JSON.stringify({
+      models,
+      messages,
+    }),
+  });
+
+  const data = (await response.json()) as any;
+
+  if (!response.ok) {
+    const errorDetails = data?.error?.message || data?.error || response.statusText;
+    throw new Error(
+      `OpenRouter Error (${response.status}): ${
+        typeof errorDetails === 'string' ? errorDetails : JSON.stringify(errorDetails)
+      }`
+    );
+  }
+
+  const text =
+    data.choices?.[0]?.message?.content ||
+    data.choices?.[0]?.text ||
+    'I reviewed your request, but no text response was returned.';
+  const modelUsed = data.model || models[0];
+
+  return { text, modelUsed };
+}
+
 async function startServer() {
   const app = express();
   const server = http.createServer(app);
@@ -75,7 +156,8 @@ async function startServer() {
   app.use(express.json({ limit: '2mb' }));
 
   // ===========================================================================
-  // 1. MULTI-TURN GEMINI CHATBOT ENDPOINT (/api/chat)
+  // 1. MULTI-TURN AI CHATBOT ENDPOINT (/api/chat)
+  // Supports OpenRouter (with multi-model fallbacks) & Google Gemini SDK
   // ===========================================================================
   app.post('/api/chat', async (req, res) => {
     try {
@@ -100,68 +182,106 @@ async function startServer() {
         return;
       }
 
-      const ai = getGenAIClient();
       const systemInstruction = buildSystemInstruction(
         roleLens,
         contractTitle,
         contractClauses
       );
 
-      let selectedModel = 'gemini-3.8-flash';
-      if (modelTier === 'fast') {
-        selectedModel = 'gemini-3.1-flash-lite';
-      } else if (modelTier === 'complex') {
-        selectedModel = 'gemini-4-argon';
-      }
+      const openRouterKey = process.env.OPENROUTER_API_KEY;
+      const geminiKey = process.env.GEMINI_API_KEY;
 
-      const formattedHistory = Array.isArray(history)
-        ? history
-            .filter((item) => item && typeof item.text === 'string' && item.text.trim())
-            .map((item) => ({
-              role: item.role === 'model' ? 'model' : 'user',
-              parts: [{ text: item.text }],
-            }))
-        : [];
-
-      const runChatWithModel = async (modelName: string) => {
-        const chat = ai.chats.create({
-          model: modelName,
-          history: formattedHistory,
-          config: {
+      // 1. Primary Option: OpenRouter (with multi-model fallback chain)
+      if (openRouterKey) {
+        try {
+          const fallbackModels =
+            OPENROUTER_MODELS[modelTier] || OPENROUTER_MODELS.general;
+          const openRouterResult = await callOpenRouter(
+            openRouterKey,
             systemInstruction,
-          },
-        });
-        const response: GenerateContentResponse = await chat.sendMessage({
-          message,
-        });
-        return {
-          text: response.text ?? 'I analyzed your request, but no text was returned.',
-          modelUsed: modelName,
-        };
-      };
-
-      try {
-        const result = await runChatWithModel(selectedModel);
-        res.json(result);
-      } catch (innerErr: unknown) {
-        const errMessage =
-          innerErr instanceof Error ? innerErr.message : String(innerErr);
-        // If user selected gemini-4-argon without a paid key, gracefully fall back to gemini-3.8-flash
-        if (selectedModel === 'gemini-4-argon') {
-          console.warn(
-            'gemini-4-argon unavailable on current key, falling back to gemini-3.8-flash:',
-            errMessage
+            history,
+            message,
+            fallbackModels
           );
-          const fallbackResult = await runChatWithModel('gemini-3.8-flash');
-          res.json({
-            ...fallbackResult,
-            fallbackNotice:
-              'Answered using Gemini 3.8 Flash (select a billing-enabled key in Settings > Secrets for Gemini 4 Argon).',
-          });
+          res.json(openRouterResult);
           return;
+        } catch (openRouterErr) {
+          console.warn('OpenRouter request failed:', openRouterErr);
+          if (!geminiKey) {
+            throw openRouterErr;
+          }
+          console.warn('Falling back to Google Gemini...');
         }
-        throw innerErr;
       }
+
+      // 2. Secondary Option / Direct: Google Gemini SDK
+      if (geminiKey) {
+        const ai = getGenAIClient();
+        let selectedModel = 'gemini-3.8-flash';
+        if (modelTier === 'fast') {
+          selectedModel = 'gemini-3.1-flash-lite';
+        } else if (modelTier === 'complex') {
+          selectedModel = 'gemini-4-argon';
+        }
+
+        const formattedHistory = Array.isArray(history)
+          ? history
+              .filter(
+                (item) => item && typeof item.text === 'string' && item.text.trim()
+              )
+              .map((item) => ({
+                role: item.role === 'model' ? 'model' : 'user',
+                parts: [{ text: item.text }],
+              }))
+          : [];
+
+        const runChatWithModel = async (modelName: string) => {
+          const chat = ai.chats.create({
+            model: modelName,
+            history: formattedHistory,
+            config: {
+              systemInstruction,
+            },
+          });
+          const response: GenerateContentResponse = await chat.sendMessage({
+            message,
+          });
+          return {
+            text:
+              response.text ?? 'I analyzed your request, but no text was returned.',
+            modelUsed: modelName,
+          };
+        };
+
+        try {
+          const result = await runChatWithModel(selectedModel);
+          res.json(result);
+          return;
+        } catch (innerErr: unknown) {
+          const errMessage =
+            innerErr instanceof Error ? innerErr.message : String(innerErr);
+          if (selectedModel === 'gemini-4-argon') {
+            console.warn(
+              'gemini-4-argon unavailable on current key, falling back to gemini-3.8-flash:',
+              errMessage
+            );
+            const fallbackResult = await runChatWithModel('gemini-3.8-flash');
+            res.json({
+              ...fallbackResult,
+              fallbackNotice:
+                'Answered using Gemini 3.8 Flash (select a billing-enabled key in Settings > Secrets for Gemini 4 Argon).',
+            });
+            return;
+          }
+          throw innerErr;
+        }
+      }
+
+      // Neither key found
+      res.status(500).json({
+        error:
+          'No AI API key found. Please add OPENROUTER_API_KEY or GEMINI_API_KEY to your .env file.',
+      });
     } catch (error: unknown) {
       console.error('Error in /api/chat:', error);
       const errMsg =
@@ -189,6 +309,20 @@ async function startServer() {
     const roleLens = url.searchParams.get('role') || 'Freelancer';
     const voiceName = url.searchParams.get('voice') || 'Zephyr';
     const contractTitle = url.searchParams.get('title') || 'Active Contract';
+
+    if (!process.env.GEMINI_API_KEY) {
+      if (clientWs.readyState === WebSocket.OPEN) {
+        clientWs.send(
+          JSON.stringify({
+            type: 'error',
+            error:
+              'Gemini Live voice assistant requires GEMINI_API_KEY. Text chat is working with OpenRouter!',
+          })
+        );
+        clientWs.close();
+      }
+      return;
+    }
 
     const ai = getGenAIClient();
     let liveSession: Awaited<ReturnType<typeof ai.live.connect>> | null = null;
