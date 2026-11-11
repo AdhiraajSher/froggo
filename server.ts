@@ -71,21 +71,16 @@ const OPENROUTER_MODELS: Record<'fast' | 'general' | 'complex', string[]> = {
   fast: [
     'google/gemini-2.0-flash-exp:free',
     'meta-llama/llama-3.2-3b-instruct:free',
-    'mistralai/mistral-7b-instruct:free',
     'openrouter/auto',
   ],
   general: [
     'meta-llama/llama-3.3-70b-instruct:free',
     'google/gemini-2.0-flash-exp:free',
-    'qwen/qwen-2.5-72b-instruct:free',
-    'mistralai/mistral-small-24b-instruct-2501:free',
     'openrouter/auto',
   ],
   complex: [
-    'deepseek/deepseek-chat',
     'meta-llama/llama-3.3-70b-instruct:free',
-    'google/gemini-2.0-flash-exp:free',
-    'qwen/qwen-2.5-72b-instruct:free',
+    'deepseek/deepseek-chat',
     'openrouter/auto',
   ],
 };
@@ -114,6 +109,13 @@ async function callOpenRouter(
 
   messages.push({ role: 'user', content: message });
 
+  // OpenRouter strictly requires models array to have 3 items or fewer
+  const safeModels = (models && models.length > 0 ? models : [
+    'meta-llama/llama-3.3-70b-instruct:free',
+    'google/gemini-2.0-flash-exp:free',
+    'openrouter/auto',
+  ]).slice(0, 3);
+
   const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: {
@@ -123,7 +125,7 @@ async function callOpenRouter(
       'X-Title': 'Froggo AI Legal Assistant',
     },
     body: JSON.stringify({
-      models,
+      models: safeModels,
       messages,
     }),
   });

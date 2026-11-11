@@ -13,8 +13,6 @@ import {
   Sparkles,
   Volume2,
   X,
-  Zap,
-  BrainCircuit,
 } from 'lucide-react';
 import { FroggoLogo } from './FroggoLogo';
 import type { RoleType } from '../App';
@@ -87,7 +85,7 @@ export const LegalAIAssistant: React.FC<LegalAIAssistantProps> = ({
   const [activeTab, setActiveTab] = useState<'chat' | 'voice'>(initialMode);
 
   // ===========================================================================
-  // 1. MULTI-TURN GEMINI CHATBOT STATE
+  // 1. MULTI-TURN AI CHATBOT STATE
   // ===========================================================================
   const [modelTier, setModelTier] = useState<ModelTier>('general');
   const [messages, setMessages] = useState<ChatTurn[]>([
@@ -95,7 +93,6 @@ export const LegalAIAssistant: React.FC<LegalAIAssistantProps> = ({
       id: 'welcome-1',
       role: 'model',
       text: `Hi! I'm your Froggo Legal Assistant. I have "${contractTitle}" loaded with your ${role} perspective.\n\nAsk me anything about specific clauses, Section 27 non-competes, the MSME 45-day payment limit, Section 194J TDS rates, or how to negotiate fairer terms.`,
-      modelUsed: 'gemini-3.8-flash',
       timestamp: 'Just now',
     },
   ]);
@@ -221,12 +218,6 @@ export const LegalAIAssistant: React.FC<LegalAIAssistantProps> = ({
         id: 'welcome-1',
         role: 'model',
         text: `Conversation cleared. I have "${contractTitle}" ready for your ${role} questions.`,
-        modelUsed:
-          modelTier === 'fast'
-            ? 'gemini-3.1-flash-lite'
-            : modelTier === 'complex'
-            ? 'gemini-4-argon'
-            : 'gemini-3.8-flash',
         timestamp: 'Just now',
       },
     ]);
@@ -529,60 +520,24 @@ export const LegalAIAssistant: React.FC<LegalAIAssistantProps> = ({
             </div>
 
             {/* ===============================================================
-                TAB 1: MULTI-TURN GEMINI LEGAL QUERY CHATBOT
+                TAB 1: MULTI-TURN LEGAL QUERY CHATBOT
                =============================================================== */}
             {activeTab === 'chat' && (
               <div className="flex-1 flex flex-col min-h-0">
-                {/* Model Selector Bar (Fast / General / Complex) */}
-                <div className="px-4 py-2.5 bg-[#F9FAFB] dark:bg-[#091A13] border-b border-gray-200 dark:border-[#1D4234] flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-1.5">
-                    <button
-                      onClick={() => setModelTier('fast')}
-                      className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1 border transition-colors ${
-                        modelTier === 'fast'
-                          ? 'bg-teal-50 dark:bg-emerald-950/80 text-[#0F766E] dark:text-emerald-300 border-[#0F766E] font-semibold'
-                          : 'bg-white dark:bg-[#122B21] text-gray-600 dark:text-emerald-200/70 border-gray-200 dark:border-[#1D4234]'
-                      }`}
-                      title="gemini-3.1-flash-lite — Fastest responses"
-                    >
-                      <Zap size={12} />
-                      <span>Fast (Flash-Lite)</span>
-                    </button>
-
-                    <button
-                      onClick={() => setModelTier('general')}
-                      className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1 border transition-colors ${
-                        modelTier === 'general'
-                          ? 'bg-teal-50 dark:bg-emerald-950/80 text-[#0F766E] dark:text-emerald-300 border-[#0F766E] font-semibold'
-                          : 'bg-white dark:bg-[#122B21] text-gray-600 dark:text-emerald-200/70 border-gray-200 dark:border-[#1D4234]'
-                      }`}
-                      title="gemini-3.8-flash — Balanced contract Q&A"
-                    >
-                      <Sparkles size={12} />
-                      <span>General (3.8 Flash)</span>
-                    </button>
-
-                    <button
-                      onClick={() => setModelTier('complex')}
-                      className={`px-2.5 py-1 rounded-md text-xs font-medium flex items-center gap-1 border transition-colors ${
-                        modelTier === 'complex'
-                          ? 'bg-teal-50 dark:bg-emerald-950/80 text-[#0F766E] dark:text-emerald-300 border-[#0F766E] font-semibold'
-                          : 'bg-white dark:bg-[#122B21] text-gray-600 dark:text-emerald-200/70 border-gray-200 dark:border-[#1D4234]'
-                      }`}
-                      title="gemini-4-argon — Deep legal reasoning"
-                    >
-                      <BrainCircuit size={12} />
-                      <span>Deep (4 Argon)</span>
-                    </button>
+                {/* Conversation Toolbar */}
+                <div className="px-4 py-2 bg-[#F9FAFB] dark:bg-[#091A13] border-b border-gray-200 dark:border-[#1D4234] flex items-center justify-between">
+                  <div className="flex items-center gap-2 text-xs text-gray-500 dark:text-emerald-300/70">
+                    <Sparkles size={13} className="text-[#0F766E] dark:text-emerald-400" />
+                    <span>Indian Statutory Contract Analysis</span>
                   </div>
 
                   <button
                     onClick={handleResetChat}
                     title="Reset conversation"
-                    className="p-1.5 rounded-md text-xs text-gray-500 dark:text-emerald-300/70 hover:text-[#111827] dark:hover:text-white hover:bg-gray-200/50 dark:hover:bg-[#122B21] flex items-center gap-1"
+                    className="px-2.5 py-1 rounded-md text-xs text-gray-500 dark:text-emerald-300/70 hover:text-[#111827] dark:hover:text-white hover:bg-gray-200/50 dark:hover:bg-[#122B21] flex items-center gap-1 transition-colors"
                   >
-                    <RotateCcw size={13} />
-                    <span>Clear</span>
+                    <RotateCcw size={12} />
+                    <span>Clear chat</span>
                   </button>
                 </div>
 
@@ -612,11 +567,6 @@ export const LegalAIAssistant: React.FC<LegalAIAssistantProps> = ({
                                 <span>Froggo AI</span>
                               </span>
                               <div className="flex items-center gap-2">
-                                {turn.modelUsed && (
-                                  <span className="text-[10px] font-medium px-1.5 py-0.5 rounded bg-teal-50 dark:bg-[#071510] text-gray-600 dark:text-emerald-300/80 border border-gray-200 dark:border-[#1D4234]">
-                                    {turn.modelUsed}
-                                  </span>
-                                )}
                                 <button
                                   onClick={() => {
                                     navigator.clipboard.writeText(turn.text);
