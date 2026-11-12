@@ -1,4 +1,5 @@
 import http from 'http';
+import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import express from 'express';
@@ -12,10 +13,68 @@ import {
 } from '@google/genai';
 import dotenv from 'dotenv';
 
-dotenv.config({ path: ['.env.local', '.env'] });
+// Load .env.local first (takes precedence), then .env
+const cwd = process.cwd();
+const localEnvPath = path.resolve(cwd, '.env.local');
+const defaultEnvPath = path.resolve(cwd, '.env');
+if (fs.existsSync(localEnvPath)) {
+  dotenv.config({ path: localEnvPath });
+}
+if (fs.existsSync(defaultEnvPath)) {
+  dotenv.config({ path: defaultEnvPath });
+}
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+// Environment-configurable Model IDs (can be overridden via env vars)
+const GEMINI_MODELS = {
+  fast: process.env.GEMINI_MODEL_FAST || process.env.GEMINI_MODEL || 'gemini-2.0-flash',
+  general: process.env.GEMINI_MODEL_GENERAL || process.env.GEMINI_MODEL || 'gemini-2.0-flash',
+  complex: process.env.GEMINI_MODEL_COMPLEX || process.env.GEMINI_MODEL || 'gemini-2.5-pro',
+  live: process.env.GEMINI_MODEL_LIVE || 'gemini-2.0-flash-exp',
+};
+
+// Rate limiting state per IP (in-memory)
+interface RateLimitRecord {
+  count: number;
+  resetTime: number;
+}
+const rateLimitMap = new Map<string, RateLimitRecord>();
+const RATE_LIMIT_WINDOW_MS = 60 * 1000; // 1 minute
+const RATE_LIMIT_MAX_REQUESTS = 30; // 30 requests per minute
+
+function checkRateLimit(ip: string): { allowed: boolean; retryAfterSeconds?: number } {
+  const now = Date.now();
+  const record = rateLimitMap.get(ip);
+
+  if (!record || now > record.resetTime) {
+    rateLimitMap.set(ip, {
+      count: 1,
+      resetTime: now + RATE_LIMIT_WINDOW_MS,
+    });
+    return { allowed: true };
+  }
+
+  if (record.count >= RATE_LIMIT_MAX_REQUESTS) {
+    const retryAfterSeconds = Math.ceil((record.resetTime - now) / 1000);
+    return { allowed: false, retryAfterSeconds };
+  }
+
+  record.count += 1;
+  return { allowed: true };
+}
+
+// Clean stale rate limit entries every 5 minutes
+const cleanupTimer = setInterval(() => {
+  const now = Date.now();
+  for (const [ip, record] of rateLimitMap.entries()) {
+    if (now > record.resetTime) {
+      rateLimitMap.delete(ip);
+    }
+  }
+}, 5 * 60 * 1000);
+cleanupTimer.unref();
 
 function getGenAIClient(): GoogleGenAI {
   const apiKey = process.env.GEMINI_API_KEY;
@@ -38,28 +97,39 @@ function getGenAIClient(): GoogleGenAI {
 function buildSystemInstruction(
   roleLens?: string,
   contractTitle?: string,
-  contractClauses?: string[]
+  contractClauses?: Array<{ id: string; text: string }> | string[]
 ): string {
-  const clauseContext =
-    contractClauses && contractClauses.length > 0
-      ? `\n\nACTIVE CONTRACT IN WORKSPACE ("${contractTitle || 'Current Agreement'}"):\n${contractClauses
-          .map((c, i) => `Clause ${i + 1}: ${c}`)
-          .join('\n')}`
-      : '';
+  const normalizedClauses = (contractClauses || []).map((c, i) => {
+    if (typeof c === 'string') {
+      return { id: `c-${String(i + 1).padStart(3, '0')}`, text: c };
+    }
+    return {
+      id: c.id || `c-${String(i + 1).padStart(3, '0')}`,
+      text: c.text || '',
+    };
+  });
 
-  return `You are Froggo AI Legal Assistant, a clear, friendly, and accurate contract analysis assistant designed for Indian freelancers, residential tenants, students, and startup founders.
+  const clauseContext =
+    normalizedClauses.length > 0
+      ? `\n\nACTIVE CONTRACT IN WORKSPACE ("${contractTitle || 'Current Agreement'}"):\n${normalizedClauses
+          .map((c) => `[${c.id}] ${c.text}`)
+          .join('\n')}`
+      : '\n\n(No contract clauses loaded in workspace.)';
+
+  return `You are Froggo AI Legal Assistant, an accurate, grounded contract analysis assistant designed for Indian freelancers, residential tenants, students, and startup founders.
 Current User Perspective (Role Lens): ${roleLens || 'Freelancer'}.
 
-CORE RESPONSIBILITIES:
-1. Translate complex legal clauses into simple, everyday English with actionable bullet points.
-2. Automatically check for Indian statutory protections where relevant:
-   - Section 27 of the Indian Contract Act, 1872 (post-termination non-compete restraints are generally void in India).
-   - Section 15 & Section 16 of the MSMED Act, 2006 & Section 43B(h) of the Income Tax Act (maximum 45-day payment cycle for MSMEs and 3x RBI bank rate compound interest on overdue invoices).
-   - Section 194J of the Income Tax Act (2% TDS under Sec 194J(b) for software/technical services vs. 10% under Sec 194J(a) for professional services; ₹50,000 annual threshold).
-   - Digital Personal Data Protection (DPDP) Act, 2023 (consent, purpose limitation, and data erasure rights).
-   - Residential Leave & License protections (normal wear-and-tear exemptions, 24-hour entry notice, itemized deposit refunds).
-3. Suggest polite, ready-to-copy negotiation questions or redline replacement clauses when a user asks how to push back on unfair terms.
-4. Keep responses concise (typically 3 to 6 short paragraphs or bullet points) and remind users briefly when appropriate that you provide educational contract information, not formal legal representation.${clauseContext}`;
+GROUNDING & CITATION RULES (MANDATORY):
+1. CITATION REQUIREMENT: When explaining, summarizing, or discussing terms from the contract, you MUST cite the specific clause identifier in brackets, e.g. [c-001], [c-014]. Every factual statement about contract provisions must link to its [c-XXX] identifier.
+2. UNGROUNDED / MISSING CLAUSES: If the user asks about a term or question that is NOT covered or mentioned in the contract clauses, you MUST state explicitly: "I can't determine this from the contract." Never speculate, assume standard provisions exist, or invent obligations not present in the text.
+3. INDIAN STATUTORY PROTECTIONS:
+   - Section 27, Indian Contract Act, 1872 (post-termination non-compete restraints are void in India).
+   - Sections 15 & 16, MSMED Act, 2006 & Section 43B(h), Income Tax Act (maximum 45-day payment cycle for MSMEs; 3x RBI bank rate compound interest for delays; disallowance of buyer tax deductions if unpaid past 45 days).
+   - Section 194J vs 194J(b), Income Tax Act (2% TDS for technical/software services vs 10% for professional services).
+   - Digital Personal Data Protection Act, 2023 (DPDP Act) (purpose limitation, consent withdrawal, mandatory data deletion).
+   - Residential Leave & License protections (24-hour advance entry notice, wear-and-tear exemptions, deposit refund upon handover).
+4. NEGOTIATION RECOMMENDATIONS: Suggest polite, professional questions or redline replacement clauses when asked how to push back on unfair terms.
+5. Remind users briefly when appropriate that you provide educational contract information, not formal legal advice or advocate certification under the Advocates Act, 1961.${clauseContext}`;
 }
 
 interface ChatHistoryItem {
@@ -155,7 +225,90 @@ async function startServer() {
   const server = http.createServer(app);
   const PORT = process.env.PORT ? parseInt(process.env.PORT, 10) : 3000;
 
+  // Startup check for GEMINI_API_KEY
+  const hasGeminiKey = Boolean(process.env.GEMINI_API_KEY && process.env.GEMINI_API_KEY.trim());
+  if (!hasGeminiKey) {
+    console.warn('[Froggo Server] Startup check: GEMINI_API_KEY is not configured. /api/chat will return 503 unless configured.');
+  } else {
+    console.log('[Froggo Server] Startup check: GEMINI_API_KEY is configured.');
+  }
+
   app.use(express.json({ limit: '2mb' }));
+
+  // ===========================================================================
+  // HEALTH CHECK ENDPOINT (/api/health)
+  // Makes one tiny test call to verify AI service connectivity & model validity
+  // ===========================================================================
+  app.get('/api/health', async (_req, res) => {
+    const geminiKey = process.env.GEMINI_API_KEY?.trim();
+    const openRouterKey = process.env.OPENROUTER_API_KEY?.trim();
+
+    if (!geminiKey && !openRouterKey) {
+      res.status(503).json({
+        status: 'unconfigured',
+        message: 'No AI API key found. Set GEMINI_API_KEY in .env or .env.local.',
+        geminiConfigured: false,
+        openRouterConfigured: false,
+        model: GEMINI_MODELS.general,
+      });
+      return;
+    }
+
+    const startTime = Date.now();
+    const provider = geminiKey ? 'gemini' : 'openrouter';
+    const testModel = geminiKey
+      ? (GEMINI_MODELS.fast || GEMINI_MODELS.general)
+      : 'openrouter/auto';
+
+    try {
+      if (geminiKey) {
+        const ai = getGenAIClient();
+        const testRes = await ai.models.generateContent({
+          model: testModel,
+          contents: 'ping',
+        });
+        const latencyMs = Date.now() - startTime;
+        res.json({
+          status: 'ok',
+          provider: 'gemini',
+          model: testModel,
+          latencyMs,
+          sample: testRes.text ? testRes.text.slice(0, 30).trim() : 'ok',
+        });
+        return;
+      }
+
+      if (openRouterKey) {
+        const testModels = ['meta-llama/llama-3.3-70b-instruct:free', 'openrouter/auto'].slice(0, 3);
+        const result = await callOpenRouter(
+          openRouterKey,
+          'Respond with pong',
+          [],
+          'ping',
+          testModels
+        );
+        const latencyMs = Date.now() - startTime;
+        res.json({
+          status: 'ok',
+          provider: 'openrouter',
+          model: result.modelUsed,
+          latencyMs,
+          sample: result.text.slice(0, 30).trim(),
+        });
+        return;
+      }
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      console.error('[Froggo Health Check Error]:', errMsg);
+      res.status(502).json({
+        status: 'error',
+        provider,
+        model: testModel,
+        latencyMs: Date.now() - startTime,
+        error: errMsg,
+      });
+    }
+  });
 
   // ===========================================================================
   // 1. MULTI-TURN AI CHATBOT ENDPOINT (/api/chat)
@@ -163,6 +316,39 @@ async function startServer() {
   // ===========================================================================
   app.post('/api/chat', async (req, res) => {
     try {
+      // 1. Per-IP Rate Limiting
+      const rawForwarded = req.headers['x-forwarded-for'];
+      const clientIp = typeof rawForwarded === 'string'
+        ? rawForwarded.split(',')[0].trim()
+        : req.socket.remoteAddress || '127.0.0.1';
+      const rateStatus = checkRateLimit(clientIp);
+      if (!rateStatus.allowed) {
+        res.setHeader('Retry-After', String(rateStatus.retryAfterSeconds || 60));
+        res.status(429).json({
+          error: `Rate limit exceeded. Please wait ${rateStatus.retryAfterSeconds || 60} seconds before sending another message.`,
+          code: 'RATE_LIMIT_EXCEEDED',
+        });
+        return;
+      }
+
+      // 2. Startup / Unconfigured Check (Return 503)
+      const openRouterKey = process.env.OPENROUTER_API_KEY?.trim();
+      const geminiKey = process.env.GEMINI_API_KEY?.trim();
+      if (!geminiKey && !openRouterKey) {
+        res.status(503).json({
+          error: 'AI service unconfigured: GEMINI_API_KEY is not set. Please set GEMINI_API_KEY in your .env or .env.local file.',
+          code: 'UNCONFIGURED_AI_SERVICE',
+        });
+        return;
+      }
+
+      // 3. Input Limits & Validation
+      const MAX_MESSAGE_LENGTH = 10000;
+      const MAX_HISTORY_ITEMS = 50;
+      const MAX_HISTORY_TEXT_LENGTH = 10000;
+      const MAX_CLAUSES_COUNT = 200;
+      const MAX_CLAUSE_TEXT_LENGTH = 5000;
+
       const {
         message,
         history = [],
@@ -176,24 +362,86 @@ async function startServer() {
         modelTier?: 'fast' | 'general' | 'complex';
         roleLens?: string;
         contractTitle?: string;
-        contractClauses?: string[];
+        contractClauses?: (string | { id?: string; text: string })[];
       };
 
-      if (!message || typeof message !== 'string') {
-        res.status(400).json({ error: 'A message string is required.' });
+      if (!message || typeof message !== 'string' || !message.trim()) {
+        res.status(400).json({ error: 'A non-empty message string is required.' });
         return;
       }
 
+      if (message.length > MAX_MESSAGE_LENGTH) {
+        res.status(400).json({
+          error: `Message exceeds maximum allowed length of ${MAX_MESSAGE_LENGTH} characters.`,
+        });
+        return;
+      }
+
+      if (!Array.isArray(history)) {
+        res.status(400).json({ error: 'history must be an array.' });
+        return;
+      }
+
+      if (history.length > MAX_HISTORY_ITEMS) {
+        res.status(400).json({
+          error: `Chat history exceeds maximum of ${MAX_HISTORY_ITEMS} turns.`,
+        });
+        return;
+      }
+
+      for (let i = 0; i < history.length; i++) {
+        const item = history[i];
+        if (!item || typeof item.text !== 'string' || item.text.length > MAX_HISTORY_TEXT_LENGTH) {
+          res.status(400).json({
+            error: `History item at index ${i} is invalid or exceeds ${MAX_HISTORY_TEXT_LENGTH} characters.`,
+          });
+          return;
+        }
+      }
+
+      const normalizedClauses: Array<{ id: string; text: string }> = [];
+      if (contractClauses && Array.isArray(contractClauses)) {
+        if (contractClauses.length > MAX_CLAUSES_COUNT) {
+          res.status(400).json({
+            error: `Contract clauses list exceeds maximum of ${MAX_CLAUSES_COUNT} clauses.`,
+          });
+          return;
+        }
+        for (let i = 0; i < contractClauses.length; i++) {
+          const raw = contractClauses[i];
+          const id =
+            raw && typeof raw === 'object' && typeof raw.id === 'string'
+              ? raw.id.slice(0, 50)
+              : `c-${String(i + 1).padStart(3, '0')}`;
+          const text =
+            typeof raw === 'string'
+              ? raw
+              : raw && typeof raw.text === 'string'
+              ? raw.text
+              : '';
+
+          if (text.length > MAX_CLAUSE_TEXT_LENGTH) {
+            res.status(400).json({
+              error: `Clause at index ${i} exceeds maximum length of ${MAX_CLAUSE_TEXT_LENGTH} characters.`,
+            });
+            return;
+          }
+          if (text.trim()) {
+            normalizedClauses.push({ id, text: text.trim() });
+          }
+        }
+      }
+
+      const cleanTitle = typeof contractTitle === 'string' ? contractTitle.slice(0, 300) : '';
+      const cleanRoleLens = typeof roleLens === 'string' ? roleLens.slice(0, 100) : 'Freelancer';
+
       const systemInstruction = buildSystemInstruction(
-        roleLens,
-        contractTitle,
-        contractClauses
+        cleanRoleLens,
+        cleanTitle,
+        normalizedClauses
       );
 
-      const openRouterKey = process.env.OPENROUTER_API_KEY;
-      const geminiKey = process.env.GEMINI_API_KEY;
-
-      // 1. Primary Option: OpenRouter (with multi-model fallback chain)
+      // Primary Option: OpenRouter (with multi-model fallback chain)
       if (openRouterKey) {
         try {
           const fallbackModels =
@@ -216,14 +464,14 @@ async function startServer() {
         }
       }
 
-      // 2. Secondary Option / Direct: Google Gemini SDK
+      // Secondary Option / Direct: Google Gemini SDK
       if (geminiKey) {
         const ai = getGenAIClient();
-        let selectedModel = 'gemini-3.8-flash';
+        let selectedModel = GEMINI_MODELS.general;
         if (modelTier === 'fast') {
-          selectedModel = 'gemini-3.1-flash-lite';
+          selectedModel = GEMINI_MODELS.fast;
         } else if (modelTier === 'complex') {
-          selectedModel = 'gemini-4-argon';
+          selectedModel = GEMINI_MODELS.complex;
         }
 
         const formattedHistory = Array.isArray(history)
@@ -262,16 +510,15 @@ async function startServer() {
         } catch (innerErr: unknown) {
           const errMessage =
             innerErr instanceof Error ? innerErr.message : String(innerErr);
-          if (selectedModel === 'gemini-4-argon') {
+          if (selectedModel === GEMINI_MODELS.complex) {
             console.warn(
-              'gemini-4-argon unavailable on current key, falling back to gemini-3.8-flash:',
+              `${GEMINI_MODELS.complex} unavailable on current key, falling back to ${GEMINI_MODELS.general}:`,
               errMessage
             );
-            const fallbackResult = await runChatWithModel('gemini-3.8-flash');
+            const fallbackResult = await runChatWithModel(GEMINI_MODELS.general);
             res.json({
               ...fallbackResult,
-              fallbackNotice:
-                'Answered using Gemini 3.8 Flash (select a billing-enabled key in Settings > Secrets for Gemini 4 Argon).',
+              fallbackNotice: `Answered using ${GEMINI_MODELS.general} (complex model unavailable).`,
             });
             return;
           }
@@ -279,15 +526,168 @@ async function startServer() {
         }
       }
 
-      // Neither key found
-      res.status(500).json({
+      res.status(503).json({
         error:
-          'No AI API key found. Please add OPENROUTER_API_KEY or GEMINI_API_KEY to your .env file.',
+          'No AI API key found. Please add GEMINI_API_KEY to your .env or .env.local file.',
       });
     } catch (error: unknown) {
       console.error('Error in /api/chat:', error);
       const errMsg =
         error instanceof Error ? error.message : 'Failed to generate AI response.';
+      res.status(500).json({ error: errMsg });
+    }
+  });
+
+  // ===========================================================================
+  // 1B. STRUCTURED CONTRACT ANALYSIS ENDPOINT (/api/analyze)
+  // Calls Gemini with structured output, verifies quoted_text against rawText
+  // ===========================================================================
+  app.post('/api/analyze', async (req, res) => {
+    try {
+      const rawForwarded = req.headers['x-forwarded-for'];
+      const clientIp =
+        typeof rawForwarded === 'string'
+          ? rawForwarded.split(',')[0].trim()
+          : req.socket.remoteAddress || '127.0.0.1';
+      const rateStatus = checkRateLimit(clientIp);
+      if (!rateStatus.allowed) {
+        res.setHeader('Retry-After', String(rateStatus.retryAfterSeconds || 60));
+        res.status(429).json({
+          error: `Rate limit exceeded. Please wait ${rateStatus.retryAfterSeconds || 60} seconds before requesting analysis.`,
+          code: 'RATE_LIMIT_EXCEEDED',
+        });
+        return;
+      }
+
+      const geminiKey = process.env.GEMINI_API_KEY?.trim();
+      if (!geminiKey) {
+        res.status(503).json({
+          error:
+            'Gemini API is not configured on server. Set GEMINI_API_KEY in .env or .env.local to enable server AI analysis.',
+          code: 'UNCONFIGURED_AI_SERVICE',
+        });
+        return;
+      }
+
+      const { rawText, clauses, role = 'Freelancer' } = req.body as {
+        rawText: string;
+        clauses: Array<{ id: string; text: string }>;
+        role?: string;
+      };
+
+      if (!rawText || typeof rawText !== 'string' || !rawText.trim()) {
+        res.status(400).json({ error: 'rawText string is required for analysis.' });
+        return;
+      }
+
+      if (rawText.length > 200000) {
+        res.status(400).json({ error: 'rawText exceeds maximum allowed length of 200,000 characters.' });
+        return;
+      }
+
+      const safeClauses = Array.isArray(clauses)
+        ? clauses.slice(0, 150).map((c) => ({
+            id: String(c.id || ''),
+            text: String(c.text || '').slice(0, 4000),
+          }))
+        : [];
+
+      const prompt = `You are Froggo AI, an expert Indian legal contract analyzer for ${role}s in India.
+Analyze the following contract clauses under applicable Indian law:
+1. Section 27, Indian Contract Act, 1872 (post-termination non-competes in employment/freelance are void).
+2. Sections 15 & 16, MSMED Act, 2006 (mandatory payment ceiling within 45 days; 3x RBI bank rate compound interest for delays).
+3. Section 43B(h), Income Tax Act, 1961 (disallowance of tax deduction for delayed payments to registered MSMEs beyond 45 days).
+4. Section 194J vs 194J(b), Income Tax Act, 1961 (2% TDS for technical services vs 10% for professional services).
+5. Digital Personal Data Protection Act, 2023 (DPDP Act - purpose limitation, user consent withdrawal, mandatory data erasure).
+6. State Leave & License / Tenancy rules (unannounced entry, arbitrary deposit deductions, repair shifting).
+
+For each issue identified, return a structured JSON array of findings with:
+- clause_id (string matching provided clause id, e.g. "c-001")
+- quoted_text (string - MUST be an EXACT verbatim substring from the clause text)
+- category (string, e.g. "Post-Termination Restriction", "Payment Timeline", "IP Transfer", "Tenancy Rights", "Liability")
+- severity ("high" | "medium" | "safe" | "not_assessed")
+- explanation (string - factual explanation citing the Indian statute)
+- suggested_question_or_edit (string - practical negotiation suggestion or question)
+- confidence (number between 0.0 and 1.0)
+
+IMPORTANT:
+- NEVER claim "Compliant" or "Safe" for terms that have not been assessed.
+- If a clause does not contain a violation, do NOT invent one.
+- Return ONLY the JSON array.`;
+
+      const ai = getGenAIClient();
+      const response = await ai.models.generateContent({
+        model: GEMINI_MODELS.general,
+        contents: [
+          {
+            role: 'user',
+            parts: [
+              {
+                text: `${prompt}\n\nContract text to analyze (JSON):\n${JSON.stringify({
+                  role,
+                  clauses: safeClauses,
+                })}`,
+              },
+            ],
+          },
+        ],
+        config: {
+          responseMimeType: 'application/json',
+        },
+      });
+
+      const responseText = response.text || '[]';
+      let parsedFindings: any[] = [];
+      try {
+        parsedFindings = JSON.parse(responseText);
+      } catch (e) {
+        const jsonMatch = responseText.match(/\[\s*\{.*\}\s*\]/s);
+        if (jsonMatch) {
+          parsedFindings = JSON.parse(jsonMatch[0]);
+        }
+      }
+
+      if (!Array.isArray(parsedFindings)) {
+        parsedFindings = [];
+      }
+
+      // Verify that quoted_text actually exists in rawText to prevent AI hallucination
+      const verifiedFindings = parsedFindings
+        .map((finding) => {
+          const quoted = typeof finding.quoted_text === 'string' ? finding.quoted_text.trim() : '';
+          const existsInSource = quoted.length > 0 && rawText.includes(quoted);
+          return {
+            clauseId: String(finding.clause_id || ''),
+            quotedText: quoted,
+            quotedTextVerified: existsInSource,
+            category: String(finding.category || 'General Terms'),
+            severity: ['high', 'medium', 'safe', 'not_assessed'].includes(finding.severity)
+              ? finding.severity
+              : 'not_assessed',
+            title: String(finding.category || 'Clause Review'),
+            explanation: String(finding.explanation || ''),
+            suggestedQuestionOrEdit: String(finding.suggested_question_or_edit || ''),
+            confidence: typeof finding.confidence === 'number' ? finding.confidence : 0.8,
+          };
+        })
+        .filter((finding) => {
+          // Drop hallucinated quotes if a quote was provided but is not present in rawText
+          if (finding.quotedText && !finding.quotedTextVerified) {
+            console.warn(`[Froggo /api/analyze] Dropped hallucinated quoted text: "${finding.quotedText.slice(0, 50)}..."`);
+            return false;
+          }
+          return true;
+        });
+
+      res.json({
+        verifiedFindings,
+        count: verifiedFindings.length,
+        modelUsed: GEMINI_MODELS.general,
+      });
+    } catch (error: unknown) {
+      console.error('Error in /api/analyze:', error);
+      const errMsg =
+        error instanceof Error ? error.message : 'Failed to analyze contract with AI.';
       res.status(500).json({ error: errMsg });
     }
   });
@@ -311,6 +711,22 @@ async function startServer() {
     const roleLens = url.searchParams.get('role') || 'Freelancer';
     const voiceName = url.searchParams.get('voice') || 'Zephyr';
     const contractTitle = url.searchParams.get('title') || 'Active Contract';
+    const rawClausesParam = url.searchParams.get('clauses');
+
+    let initialClauses: Array<{ id: string; text: string }> = [];
+    if (rawClausesParam) {
+      try {
+        const parsed = JSON.parse(decodeURIComponent(rawClausesParam));
+        if (Array.isArray(parsed)) {
+          initialClauses = parsed.slice(0, 50).map((c, i) => ({
+            id: typeof c === 'object' && c.id ? String(c.id) : `c-${String(i + 1).padStart(3, '0')}`,
+            text: typeof c === 'object' && c.text ? String(c.text).slice(0, 1000) : String(c).slice(0, 1000),
+          }));
+        }
+      } catch {
+        // Fall back to empty clauses
+      }
+    }
 
     if (!process.env.GEMINI_API_KEY) {
       if (clientWs.readyState === WebSocket.OPEN) {
@@ -332,12 +748,12 @@ async function startServer() {
     const systemInstruction = `${buildSystemInstruction(
       roleLens,
       contractTitle,
-      []
+      initialClauses
     )}
-You are speaking live in real time over voice. Keep your spoken responses warm, natural, conversational, and concise (2 to 4 sentences at a time) so the user can easily have a back-and-forth voice conversation with you.`;
+You are speaking live in real time over voice. Keep your spoken responses warm, conversational, concise, and focused (2 to 4 sentences). Note: For exact verbatim clause reading and clause citations, advise the user to check the AI Query Chatbot tab.`;
 
     const sessionPromise = ai.live.connect({
-      model: 'gemini-3.8-live',
+      model: GEMINI_MODELS.live,
       config: {
         responseModalities: [Modality.AUDIO],
         speechConfig: {
@@ -490,7 +906,7 @@ You are speaking live in real time over voice. Keep your spoken responses warm, 
   } else {
     const distPath = path.join(__dirname, 'dist');
     app.use(express.static(distPath));
-    app.get('*all', (_req, res) => {
+    app.get('*', (_req, res) => {
       res.sendFile(path.join(distPath, 'index.html'));
     });
   }

@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { FroggoLogo } from './FroggoLogo';
 import type { RoleType } from '../App';
+import { sanitizeTextForNetwork } from '../lib/masking';
 
 export type ModelTier = 'fast' | 'general' | 'complex';
 
@@ -34,6 +35,11 @@ interface VoiceTranscriptItem {
   text: string;
 }
 
+export interface AssistantClause {
+  id: string;
+  text: string;
+}
+
 interface LegalAIAssistantProps {
   isOpen: boolean;
   initialMode: 'chat' | 'voice';
@@ -41,7 +47,54 @@ interface LegalAIAssistantProps {
   onOpenWithMode: (mode: 'chat' | 'voice') => void;
   role: RoleType;
   contractTitle: string;
-  contractClauses: string[];
+  contractClauses: AssistantClause[];
+  onSelectClause?: (clauseId: string) => void;
+}
+
+/**
+ * Render message text with clickable citations e.g. [c-001], [c-014]
+ */
+function renderMessageWithCitations(
+  text: string,
+  onSelectClause?: (clauseId: string) => void
+): React.ReactNode {
+  const regex = /\[(c-\d{1,4})\]/gi;
+  const parts: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+
+  while ((match = regex.exec(text)) !== null) {
+    const preText = text.slice(lastIndex, match.index);
+    if (preText) {
+      parts.push(preText);
+    }
+    const clauseId = match[1].toLowerCase();
+    const rawCitation = match[0];
+
+    parts.push(
+      <button
+        key={`${clauseId}-${match.index}`}
+        type="button"
+        onClick={() => {
+          if (onSelectClause) {
+            onSelectClause(clauseId);
+          }
+        }}
+        className="inline-flex items-center px-1.5 py-0.5 mx-0.5 rounded font-mono text-xs font-bold bg-emerald-100 hover:bg-emerald-200 dark:bg-emerald-950 dark:hover:bg-emerald-900 text-[#0F766E] dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 transition-colors cursor-pointer"
+        title={`View and jump to clause ${clauseId} in Reading Room`}
+      >
+        {rawCitation}
+      </button>
+    );
+    lastIndex = regex.lastIndex;
+  }
+
+  const remainingText = text.slice(lastIndex);
+  if (remainingText) {
+    parts.push(remainingText);
+  }
+
+  return <div className="whitespace-pre-wrap">{parts}</div>;
 }
 
 function float32ToPcm16Base64(float32Array: Float32Array): string {
@@ -81,6 +134,7 @@ export const LegalAIAssistant: React.FC<LegalAIAssistantProps> = ({
   role,
   contractTitle,
   contractClauses,
+  onSelectClause,
 }) => {
   const [activeTab, setActiveTab] = useState<'chat' | 'voice'>(initialMode);
 
@@ -103,7 +157,7 @@ export const LegalAIAssistant: React.FC<LegalAIAssistantProps> = ({
   const chatScrollRef = useRef<HTMLDivElement>(null);
 
   // ===========================================================================
-  // 2. GEMINI LIVE VOICE ASSISTANT STATE (gemini-3.8-live)
+  // 2. OPENROUTER LIVE VOICE ASSISTANT STATE (Speech-to-Speech via OpenRouter)
   // ===========================================================================
   const [voiceStatus, setVoiceStatus] = useState<
     'idle' | 'connecting' | 'listening' | 'speaking' | 'error'
@@ -113,13 +167,8 @@ export const LegalAIAssistant: React.FC<LegalAIAssistantProps> = ({
   const [selectedVoice, setSelectedVoice] = useState<string>('Zephyr');
   const [voiceTranscripts, setVoiceTranscripts] = useState<VoiceTranscriptItem[]>([]);
 
-  const wsRef = useRef<WebSocket | null>(null);
-  const inputAudioCtxRef = useRef<AudioContext | null>(null);
-  const outputAudioCtxRef = useRef<AudioContext | null>(null);
-  const mediaStreamRef = useRef<MediaStream | null>(null);
-  const processorRef = useRef<ScriptProcessorNode | null>(null);
-  const nextStartTimeRef = useRef<number>(0);
-  const activeSourcesRef = useRef<AudioBufferSourceNode[]>([]);
+  const recognitionRef = useRef<any>(null);
+  const synthUtteranceRef = useRef<SpeechSynthesisUtterance | null>(null);
   const isMutedRef = useRef<boolean>(false);
   const voiceScrollRef = useRef<HTMLDivElement>(null);
 
@@ -176,16 +225,26 @@ export const LegalAIAssistant: React.FC<LegalAIAssistantProps> = ({
     setIsSending(true);
 
     try {
+      const sanitizedText = sanitizeTextForNetwork(textToSend);
+      const sanitizedHistory = historyForApi.map((h) => ({
+        role: h.role,
+        text: sanitizeTextForNetwork(h.text),
+      }));
+      const sanitizedClauses = contractClauses.map((c) => ({
+        id: c.id,
+        text: sanitizeTextForNetwork(c.text),
+      }));
+
       const response = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          message: textToSend,
-          history: historyForApi,
+          message: sanitizedText,
+          history: sanitizedHistory,
           modelTier,
           roleLens: role,
           contractTitle,
-          contractClauses,
+          contractClauses: sanitizedClauses,
         }),
       });
 
@@ -225,220 +284,199 @@ export const LegalAIAssistant: React.FC<LegalAIAssistantProps> = ({
   }
 
   // ===========================================================================
-  // GEMINI LIVE API VOICE HANDLERS (16kHz Input / 24kHz Output PCM)
+  // OPENROUTER LIVE VOICE ENGINE (SpeechRecognition + OpenRouter /api/chat + SpeechSynthesis)
   // ===========================================================================
-  function clearScheduledPlayback() {
-    activeSourcesRef.current.forEach((src) => {
-      try {
-        src.stop();
-        src.disconnect();
-      } catch {
-        // Ignore already stopped sources
-      }
-    });
-    activeSourcesRef.current = [];
-    nextStartTimeRef.current = 0;
-  }
-
-  function schedulePcm24kAudio(base64Audio: string) {
-    const outputCtx = outputAudioCtxRef.current;
-    if (!outputCtx) return;
-
-    const float32Data = pcm16Base64ToFloat32(base64Audio);
-    if (float32Data.length === 0) return;
-
-    const audioBuffer = outputCtx.createBuffer(1, float32Data.length, 24000);
-    audioBuffer.getChannelData(0).set(float32Data);
-
-    const source = outputCtx.createBufferSource();
-    source.buffer = audioBuffer;
-    source.connect(outputCtx.destination);
-
-    const currentTime = outputCtx.currentTime;
-    const startTime = Math.max(currentTime, nextStartTimeRef.current);
-    source.start(startTime);
-    nextStartTimeRef.current = startTime + audioBuffer.duration;
-
-    activeSourcesRef.current.push(source);
-    setVoiceStatus('speaking');
-
-    source.onended = () => {
-      activeSourcesRef.current = activeSourcesRef.current.filter((s) => s !== source);
-      if (activeSourcesRef.current.length === 0 && wsRef.current?.readyState === WebSocket.OPEN) {
-        setVoiceStatus('listening');
-      }
-    };
-  }
-
-  async function startVoiceSession() {
-    if (voiceStatus === 'connecting' || voiceStatus === 'listening' || voiceStatus === 'speaking') {
+  function speakResponse(textToSpeak: string, onDone?: () => void) {
+    if (typeof window === 'undefined' || !('speechSynthesis' in window)) {
+      if (onDone) onDone();
       return;
     }
 
-    setVoiceError('');
-    setVoiceStatus('connecting');
-    setVoiceTranscripts([]);
+    window.speechSynthesis.cancel();
+    setVoiceStatus('speaking');
+
+    // Clean markdown asterisks and citations e.g. [c-001] for natural spoken voice
+    const spokenText = textToSpeak
+      .replace(/\*\*?/g, '')
+      .replace(/\[c-\d+\]/gi, '')
+      .replace(/#+/g, '')
+      .slice(0, 450);
+
+    const utterance = new SpeechSynthesisUtterance(spokenText);
+    utterance.rate = 1.05;
+    utterance.pitch = 1.0;
+    utterance.lang = 'en-US';
+
+    const voices = window.speechSynthesis.getVoices();
+    if (voices.length > 0) {
+      const preferredVoice =
+        voices.find(
+          (v) =>
+            v.name.toLowerCase().includes(selectedVoice.toLowerCase()) ||
+            (v.lang.startsWith('en') && !v.name.includes('Google'))
+        ) ||
+        voices.find((v) => v.lang.startsWith('en')) ||
+        voices[0];
+      if (preferredVoice) utterance.voice = preferredVoice;
+    }
+
+    utterance.onend = () => {
+      if (isMutedRef.current) {
+        setVoiceStatus('idle');
+      } else {
+        setVoiceStatus('listening');
+        if (onDone) onDone();
+        restartRecognition();
+      }
+    };
+
+    utterance.onerror = () => {
+      setVoiceStatus('listening');
+      restartRecognition();
+    };
+
+    synthUtteranceRef.current = utterance;
+    window.speechSynthesis.speak(utterance);
+  }
+
+  function restartRecognition() {
+    if (isMutedRef.current) return;
+    try {
+      if (recognitionRef.current) {
+        recognitionRef.current.start();
+      }
+    } catch {
+      // Ignore if already active
+    }
+  }
+
+  async function processVoiceQuery(userSpokenText: string) {
+    const trimmed = userSpokenText.trim();
+    if (!trimmed) return;
+
+    setVoiceTranscripts((prev) => [
+      ...prev,
+      { id: `vt-u-${Date.now()}`, speaker: 'user', text: trimmed },
+    ]);
+
+    setVoiceStatus('connecting'); // Showing thinking orb
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          channelCount: 1,
-          sampleRate: 16000,
-          echoCancellation: true,
-          noiseSuppression: true,
-        },
+      const response = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: trimmed,
+          history: voiceTranscripts.map((t) => ({
+            role: t.speaker === 'user' ? 'user' : 'model',
+            text: t.text,
+          })),
+          modelTier: 'fast',
+          roleLens: role,
+          contractTitle,
+          contractClauses,
+        }),
       });
-      mediaStreamRef.current = stream;
 
-      const inputCtx = new AudioContext({ sampleRate: 16000 });
-      const outputCtx = new AudioContext({ sampleRate: 24000 });
-      inputAudioCtxRef.current = inputCtx;
-      outputAudioCtxRef.current = outputCtx;
-      nextStartTimeRef.current = 0;
+      const data = await response.json();
+      if (!response.ok) {
+        throw new Error(data.error || 'Failed to get voice reply from OpenRouter.');
+      }
 
-      const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-      const params = new URLSearchParams({
-        role,
-        voice: selectedVoice,
-        title: contractTitle,
-      });
-      const ws = new WebSocket(`${protocol}//${window.location.host}/api/live?${params.toString()}`);
-      wsRef.current = ws;
+      const reply = data.text || 'I checked the contract, but received no response.';
+      setVoiceTranscripts((prev) => [
+        ...prev,
+        { id: `vt-m-${Date.now()}`, speaker: 'model', text: reply },
+      ]);
 
-      ws.onmessage = (event) => {
-        try {
-          const msg = JSON.parse(event.data);
-          if (msg.type === 'ready') {
-            setVoiceStatus('listening');
-            // Send active contract clauses as initial context to the live session
-            if (contractClauses.length > 0) {
-              ws.send(
-                JSON.stringify({
-                  text: `Context: The user is currently reviewing "${contractTitle}" as a ${role}. Key clauses: ${contractClauses
-                    .slice(0, 4)
-                    .join(' | ')}. Greet the user briefly in 1 sentence and ask how you can help decode this contract.`,
-                })
-              );
-            }
-          } else if (msg.type === 'audio' && msg.audio) {
-            schedulePcm24kAudio(msg.audio);
-          } else if (msg.type === 'inputTranscript' && msg.text) {
-            setVoiceTranscripts((prev) => {
-              const last = prev[prev.length - 1];
-              if (last && last.speaker === 'user') {
-                return [
-                  ...prev.slice(0, -1),
-                  { ...last, text: `${last.text}${msg.text}` },
-                ];
-              }
-              return [...prev, { id: `vt-u-${Date.now()}`, speaker: 'user', text: msg.text }];
-            });
-          } else if (msg.type === 'outputTranscript' && msg.text) {
-            setVoiceTranscripts((prev) => {
-              const last = prev[prev.length - 1];
-              if (last && last.speaker === 'model') {
-                return [
-                  ...prev.slice(0, -1),
-                  { ...last, text: `${last.text}${msg.text}` },
-                ];
-              }
-              return [...prev, { id: `vt-m-${Date.now()}`, speaker: 'model', text: msg.text }];
-            });
-          } else if (msg.type === 'interrupted') {
-            clearScheduledPlayback();
-            setVoiceStatus('listening');
-          } else if (msg.type === 'error') {
-            setVoiceError(msg.error || 'Voice assistant error occurred.');
-            stopVoiceSession();
-          } else if (msg.type === 'closed') {
-            stopVoiceSession();
-          }
-        } catch (e) {
-          console.error('Error parsing Live WebSocket message:', e);
+      speakResponse(reply);
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : 'Error during voice interaction.';
+      setVoiceError(errMsg);
+      setVoiceStatus('error');
+    }
+  }
+
+  function startVoiceSession() {
+    setVoiceError('');
+    setVoiceStatus('connecting');
+
+    const SpeechRecognition =
+      (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
+
+    if (!SpeechRecognition) {
+      setVoiceError(
+        'Speech recognition is not supported in this browser. You can tap any of the voice prompt buttons below to hear spoken responses.'
+      );
+      setVoiceStatus('error');
+      return;
+    }
+
+    try {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = false;
+      recognition.interimResults = false;
+      recognition.lang = 'en-US';
+
+      recognition.onstart = () => {
+        setVoiceStatus('listening');
+      };
+
+      recognition.onresult = (event: any) => {
+        const transcript = event.results[0][0].transcript;
+        if (transcript) {
+          processVoiceQuery(transcript);
         }
       };
 
-      ws.onerror = () => {
-        setVoiceError('WebSocket connection error while connecting to Gemini Live.');
-        stopVoiceSession();
+      recognition.onerror = (event: any) => {
+        if (event.error !== 'no-speech') {
+          console.warn('Speech recognition warning:', event.error);
+        }
+        if (voiceStatus !== 'speaking') {
+          setVoiceStatus('listening');
+        }
       };
 
-      ws.onclose = () => {
-        stopVoiceSession();
+      recognition.onend = () => {
+        if (voiceStatus === 'listening' && !isMutedRef.current) {
+          try {
+            recognition.start();
+          } catch {}
+        }
       };
 
-      const source = inputCtx.createMediaStreamSource(stream);
-      const processor = inputCtx.createScriptProcessor(4096, 1, 1);
-      processorRef.current = processor;
+      recognitionRef.current = recognition;
+      recognition.start();
 
-      processor.onaudioprocess = (e) => {
-        if (isMutedRef.current) return;
-        if (wsRef.current?.readyState !== WebSocket.OPEN) return;
-        const inputData = e.inputBuffer.getChannelData(0);
-        const pcmBase64 = float32ToPcm16Base64(inputData);
-        wsRef.current.send(JSON.stringify({ audio: pcmBase64 }));
-      };
-
-      source.connect(processor);
-      processor.connect(inputCtx.destination);
+      // Greet user with OpenRouter voice assistant
+      const greeting = `Hi! I have ${contractTitle} loaded with OpenRouter. Speak your question anytime.`;
+      setVoiceTranscripts([
+        { id: `vt-m-${Date.now()}`, speaker: 'model', text: greeting },
+      ]);
+      speakResponse(greeting);
     } catch (err: unknown) {
-      const errMsg =
-        err instanceof Error
-          ? err.message
-          : 'Microphone access is required for real-time voice conversation.';
+      const errMsg = err instanceof Error ? err.message : 'Unable to access microphone.';
       setVoiceError(errMsg);
       setVoiceStatus('error');
-      stopVoiceSession();
     }
   }
 
   function stopVoiceSession() {
-    clearScheduledPlayback();
-
-    if (processorRef.current) {
+    if (typeof window !== 'undefined' && 'speechSynthesis' in window) {
+      window.speechSynthesis.cancel();
+    }
+    if (recognitionRef.current) {
       try {
-        processorRef.current.disconnect();
-      } catch {
-        // Ignore
-      }
-      processorRef.current = null;
+        recognitionRef.current.abort();
+      } catch {}
+      recognitionRef.current = null;
     }
-
-    if (mediaStreamRef.current) {
-      mediaStreamRef.current.getTracks().forEach((track) => track.stop());
-      mediaStreamRef.current = null;
-    }
-
-    if (inputAudioCtxRef.current) {
-      inputAudioCtxRef.current.close().catch(() => {});
-      inputAudioCtxRef.current = null;
-    }
-
-    if (outputAudioCtxRef.current) {
-      outputAudioCtxRef.current.close().catch(() => {});
-      outputAudioCtxRef.current = null;
-    }
-
-    if (wsRef.current) {
-      try {
-        wsRef.current.close();
-      } catch {
-        // Ignore
-      }
-      wsRef.current = null;
-    }
-
-    setVoiceStatus((prev) => (prev === 'error' ? 'error' : 'idle'));
+    setVoiceStatus('idle');
   }
 
   function sendVoicePromptHint(hintText: string) {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      setVoiceTranscripts((prev) => [
-        ...prev,
-        { id: `vt-u-${Date.now()}`, speaker: 'user', text: hintText },
-      ]);
-      wsRef.current.send(JSON.stringify({ text: hintText }));
-    }
+    processVoiceQuery(hintText);
   }
 
   const quickQuestions = [
@@ -586,7 +624,11 @@ export const LegalAIAssistant: React.FC<LegalAIAssistantProps> = ({
                             </div>
                           )}
 
-                          <div className="whitespace-pre-wrap">{turn.text}</div>
+                          {isUser ? (
+                            <div className="whitespace-pre-wrap">{turn.text}</div>
+                          ) : (
+                            renderMessageWithCitations(turn.text, onSelectClause)
+                          )}
 
                           {turn.fallbackNotice && (
                             <div className="mt-2 pt-2 border-t border-gray-200 dark:border-[#1D4234] text-[11px] text-amber-800 dark:text-amber-300">
@@ -665,16 +707,30 @@ export const LegalAIAssistant: React.FC<LegalAIAssistantProps> = ({
             )}
 
             {/* ===============================================================
-                TAB 2: GEMINI LIVE REAL-TIME VOICE ASSISTANT (gemini-3.8-live)
+                TAB 2: GEMINI LIVE REAL-TIME VOICE ASSISTANT
                =============================================================== */}
             {activeTab === 'voice' && (
               <div className="flex-1 flex flex-col justify-between p-5 bg-white dark:bg-[#0C1F17] overflow-y-auto space-y-5">
+                {/* Clarification banner: Voice gives general guidance */}
+                <div className="p-3 rounded-xl bg-teal-50 dark:bg-emerald-950/40 border border-teal-200 dark:border-emerald-800 text-xs text-teal-800 dark:text-emerald-200 leading-relaxed text-left">
+                  <span className="font-bold">General Guidance Notice:</span> Live Voice conversation
+                  provides conversational explanations and legal concepts. For exact verbatim clause reading and clickable citations [c-001], please switch to the{' '}
+                  <button
+                    type="button"
+                    onClick={() => setActiveTab('chat')}
+                    className="underline font-bold text-[#0F766E] dark:text-emerald-300 hover:text-emerald-800 cursor-pointer"
+                  >
+                    AI Query Chatbot
+                  </button>{' '}
+                  tab.
+                </div>
+
                 {/* Top Voice Settings & Status Card */}
                 <div className="p-5 rounded-2xl bg-[#F9FAFB] dark:bg-[#122B21] border border-gray-200 dark:border-[#1D4234] text-center space-y-4">
                   <div className="flex items-center justify-between text-xs">
                     <span className="font-semibold text-[#0F766E] dark:text-emerald-300 flex items-center gap-1.5">
                       <Volume2 size={15} />
-                      <span>Gemini 3.8 Live Voice API</span>
+                      <span>OpenRouter Voice Assistant</span>
                     </span>
                     <div className="flex items-center gap-1.5">
                       <label
@@ -723,7 +779,7 @@ export const LegalAIAssistant: React.FC<LegalAIAssistantProps> = ({
 
                     <h3 className="font-heading text-lg font-bold text-[#111827] dark:text-emerald-50 mt-4">
                       {voiceStatus === 'idle' && 'Ready for Real-Time Voice Consultation'}
-                      {voiceStatus === 'connecting' && 'Connecting to Gemini 3.8 Live...'}
+                      {voiceStatus === 'connecting' && 'Connecting to OpenRouter Voice...'}
                       {voiceStatus === 'listening' &&
                         (isMuted ? 'Microphone Muted' : 'Listening — Speak Naturally')}
                       {voiceStatus === 'speaking' && 'Froggo Voice Assistant is Speaking...'}
@@ -732,7 +788,7 @@ export const LegalAIAssistant: React.FC<LegalAIAssistantProps> = ({
 
                     <p className="text-xs text-gray-600 dark:text-emerald-200/75 max-w-sm mt-1">
                       {voiceStatus === 'idle'
-                        ? `Start a live two-way voice conversation about "${contractTitle}" and Indian contract laws.`
+                        ? `Start a live two-way voice conversation discussing "${contractTitle}" and Indian contract principles.`
                         : 'You can interrupt at any time or tap a topic below.'}
                     </p>
                   </div>

@@ -42,7 +42,7 @@ const STAGGERED_DOSSIER_COLUMNS = [
       'oint and several liability turns an individual bedroom lease into a shared financial guarantee for three strangers.',
     cardTitle: 'ROOMMATE ARREARS (SEC 2.3)',
     cardBody:
-      'Landlord can legally pursue any single student tenant for 100% of the $5,800/mo unit rent and common damages.',
+      'Landlord can legally pursue any single student tenant for 100% of the ₹48,000/mo unit rent and common damages.',
     secondaryCardTitle: '90-DAY ROLLOVER LOCK',
     secondaryCardBody: 'Automatically renews for 12 months at +8% rent unless physical mail is sent.'
   },
@@ -60,7 +60,7 @@ const STAGGERED_DOSSIER_COLUMNS = [
       'nternship invention clauses frequently overreach beyond working hours to claim student hackathons and thesis research.',
     cardTitle: 'STIPEND CLAWBACK (SEC 3.2)',
     cardBody:
-      'Requires repaying 100% of your $3,500 summer housing stipend within 14 days if you decline a full-time return offer.',
+      'Requires repaying 100% of your ₹35,000 summer housing stipend within 14 days if you decline a full-time return offer.',
     secondaryCardTitle: '24/7 HACKATHON IP CLAIM',
     secondaryCardBody: 'Assigns weekend and dorm-room side projects built during the 12-week summer.'
   },

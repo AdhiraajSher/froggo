@@ -274,13 +274,13 @@ export const CreatorStudioDashboard: React.FC = () => {
           </div>
           <div className="text-xs text-neutral-400">
             {INDUSTRY_STANDARD_CLAUSES.length - analysis.presentCount === 0
-              ? '100% aligned with fair industry standards'
+              ? 'All benchmark standard clauses included in draft'
               : `${INDUSTRY_STANDARD_CLAUSES.length - analysis.presentCount} fairness clauses missing`}
           </div>
         </div>
 
         <div className="bg-[#101010] border border-neutral-800 p-6 flex flex-col justify-between">
-          <div className="text-xs font-mono text-neutral-400">FROGGO CERTIFICATION STATUS</div>
+          <div className="text-xs font-mono text-neutral-400">DRAFT READABILITY BENCHMARK</div>
           <div className="my-3">
             <span
               className={`text-lg font-display font-bold ${
@@ -290,7 +290,7 @@ export const CreatorStudioDashboard: React.FC = () => {
               }`}
             >
               {analysis.readabilityScore >= 80 && analysis.presentCount >= 3
-                ? 'Froggo-Safe Verified'
+                ? 'Meets Readability Benchmark'
                 : 'Simplification Needed'}
             </span>
           </div>

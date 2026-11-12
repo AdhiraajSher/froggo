@@ -15,6 +15,8 @@ import {
   UserRole,
   analyzeCustomContractText
 } from '../data/contractsData';
+import { extractDocumentText } from '../lib/extractDocumentText';
+import { sanitizeTextForNetwork } from '../lib/masking';
 
 interface UserSummarizerDashboardProps {
   initialRole?: UserRole;
@@ -105,6 +107,7 @@ export const UserSummarizerDashboard: React.FC<UserSummarizerDashboardProps> = (
   const [rightSidebarTab, setRightSidebarTab] = useState<'risks' | 'missing'>('risks');
   const [showUploadPanel, setShowUploadPanel] = useState<boolean>(false);
   const [customPasteText, setCustomPasteText] = useState<string>('');
+  const [uploadError, setUploadError] = useState<string>('');
   const [isDragging, setIsDragging] = useState<boolean>(false);
 
   // Mosby's Files "File Separation" processing animation state
@@ -158,30 +161,33 @@ export const UserSummarizerDashboard: React.FC<UserSummarizerDashboardProps> = (
   };
 
   const handleAnalyzeCustomText = () => {
-    if (!customPasteText.trim()) return;
-    const analyzed = analyzeCustomContractText(customPasteText, selectedRole);
+    if (!customPasteText.trim()) {
+      setUploadError('Please paste or type contract text before running analysis.');
+      return;
+    }
+    setUploadError('');
+    const sanitized = sanitizeTextForNetwork(customPasteText);
+    const analyzed = analyzeCustomContractText(sanitized, selectedRole);
     triggerFileSeparationSequence(analyzed, selectedRole);
   };
 
-  const handleFileUpload = (file: File) => {
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const content = typeof e.target?.result === 'string' ? e.target.result : '';
-      if (content.trim().length > 20) {
-        setCustomPasteText(content);
-        const analyzed = analyzeCustomContractText(content, selectedRole);
-        analyzed.title = file.name.replace(/\.[^/.]+$/, '');
-        triggerFileSeparationSequence(analyzed, selectedRole);
-      } else {
-        const fallback = analyzeCustomContractText(
-          `Uploaded Document: ${file.name}. Party A requires Party B to indemnify and hold harmless without limitation, with automatic 12-month renewal and Net-60 payment terms.`,
-          selectedRole
-        );
-        fallback.title = file.name;
-        triggerFileSeparationSequence(fallback, selectedRole);
-      }
-    };
-    reader.readAsText(file);
+  const [isExtracting, setIsExtracting] = useState<boolean>(false);
+
+  const handleFileUpload = async (file: File) => {
+    setUploadError('');
+    setIsExtracting(true);
+    try {
+      const result = await extractDocumentText(file);
+      const sanitized = sanitizeTextForNetwork(result.text);
+      setCustomPasteText(sanitized);
+      const analyzed = analyzeCustomContractText(sanitized, selectedRole);
+      analyzed.title = result.fileName.replace(/\.[^/.]+$/, '');
+      triggerFileSeparationSequence(analyzed, selectedRole);
+    } catch (err: unknown) {
+      setUploadError(err instanceof Error ? err.message : 'Failed to extract text from file.');
+    } finally {
+      setIsExtracting(false);
+    }
   };
 
   const handleCopyText = (id: string, text: string) => {
@@ -197,18 +203,18 @@ export const UserSummarizerDashboard: React.FC<UserSummarizerDashboardProps> = (
     ROLE_OPTIONS.find((r) => r.id === selectedRole) || ROLE_OPTIONS[0];
 
   return (
-    <div className="bg-[#080808] text-[#F5F5F5] min-h-screen px-6 sm:px-12 lg:px-20 py-12">
+    <div className="bg-[var(--bg-canvas)] text-[var(--text-primary)] min-h-screen px-6 sm:px-12 lg:px-20 py-12 transition-colors duration-200">
       {/* =====================================================================
           HEADER & ROLE LENS SELECTOR
          ===================================================================== */}
-      <div className="border-b border-neutral-900 pb-10 mb-10">
+      <div className="border-b border-[var(--border-subtle)] pb-10 mb-10">
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-end">
           <div className="lg:col-span-7">
-            <div className="text-xs font-mono text-[#98FF98] mb-3">
-              DASHBOARD A · USER / SUMMARIZER WORKSPACE
+            <div className="text-xs font-mono text-emerald-700 dark:text-emerald-400 mb-3 font-semibold">
+              DASHBOARD A · PLAIN-ENGLISH CONTRACT DECODER
             </div>
             <h1
-              className="font-display font-bold tracking-[-0.04em] leading-[0.96] editorial-gradient-text"
+              className="font-display font-bold tracking-[-0.04em] leading-[0.96] text-[var(--text-primary)]"
               style={{ fontSize: 'clamp(2.5rem, 5.5vw, 4.75rem)' }}
             >
               Plain-English Decoder
@@ -216,7 +222,7 @@ export const UserSummarizerDashboard: React.FC<UserSummarizerDashboardProps> = (
           </div>
 
           <div className="lg:col-span-5 flex flex-col items-start lg:items-end justify-end space-y-3">
-            <span className="text-xs font-mono text-neutral-400">
+            <span className="text-xs font-mono text-[var(--text-secondary)]">
               SELECT YOUR SIGNING ROLE LENS (DIE-CUT FOLDER TABS)
             </span>
             <div className="flex items-end gap-2">
@@ -227,10 +233,10 @@ export const UserSummarizerDashboard: React.FC<UserSummarizerDashboardProps> = (
                     key={roleOpt.id}
                     onClick={() => handleRoleSwitch(roleOpt.id)}
                     style={{
-                      backgroundColor: isActive ? roleOpt.folderColor : '#151515',
-                      color: isActive ? roleOpt.tabText : '#A3A3A3'
+                      backgroundColor: isActive ? roleOpt.folderColor : 'var(--bg-elevated)',
+                      color: isActive ? roleOpt.tabText : 'var(--text-secondary)'
                     }}
-                    className={`px-5 py-2.5 rounded-t-xl font-serif text-xs sm:text-sm font-semibold transition-transform cursor-pointer whitespace-nowrap shrink-0 border-t border-x border-white/15 ${
+                    className={`px-5 py-2.5 rounded-t-xl font-serif text-xs sm:text-sm font-semibold transition-transform cursor-pointer whitespace-nowrap shrink-0 border-t border-x border-[var(--border-subtle)] ${
                       isActive ? 'translate-y-0 shadow-lg' : 'translate-y-1 hover:translate-y-0'
                     }`}
                   >
@@ -239,16 +245,16 @@ export const UserSummarizerDashboard: React.FC<UserSummarizerDashboardProps> = (
                 );
               })}
             </div>
-            <p className="text-xs text-neutral-500 text-left lg:text-right">
+            <p className="text-xs text-[var(--text-secondary)] text-left lg:text-right">
               {currentRoleConfig.focus}
             </p>
           </div>
         </div>
 
         {/* Preset Dossier Switcher + Sheet Mode + Upload/Paste Trigger Bar */}
-        <div className="mt-8 pt-6 border-t border-neutral-900/80 flex flex-wrap items-center justify-between gap-4">
+        <div className="mt-8 pt-6 border-t border-[var(--border-subtle)] flex flex-wrap items-center justify-between gap-4">
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-xs font-mono text-neutral-500 mr-2">ACTIVE DOSSIER:</span>
+            <span className="text-xs font-mono text-[var(--text-secondary)] mr-2">ACTIVE DOSSIER:</span>
             {PRESET_CONTRACTS.map((preset) => {
               const isCurrent = activeContract.id === preset.id;
               return (
@@ -257,10 +263,10 @@ export const UserSummarizerDashboard: React.FC<UserSummarizerDashboardProps> = (
                   onClick={() =>
                     triggerFileSeparationSequence(preset, preset.recommendedRole)
                   }
-                  className={`px-3.5 py-2 text-xs font-mono border transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+                  className={`px-3.5 py-2 text-xs font-mono border rounded-lg transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
                     isCurrent
-                      ? 'bg-[#F6F4EA] text-[#080808] border-[#F6F4EA] font-semibold'
-                      : 'bg-[#0E0E0E] text-neutral-400 border-neutral-800 hover:border-neutral-600 hover:text-neutral-200'
+                      ? 'bg-[#005f44] text-white border-[#005f44] font-semibold'
+                      : 'bg-[var(--bg-surface)] text-[var(--text-secondary)] border-[var(--border-subtle)] hover:border-emerald-600 hover:text-[var(--text-primary)]'
                   }`}
                 >
                   {preset.fileCode} · {preset.recommendedRole.toUpperCase()}
@@ -276,26 +282,26 @@ export const UserSummarizerDashboard: React.FC<UserSummarizerDashboardProps> = (
                   prev === 'cream-dossier' ? 'dark-brutalist' : 'cream-dossier'
                 )
               }
-              className="px-3.5 py-2 text-xs font-mono text-neutral-300 bg-[#111111] border border-neutral-800 hover:border-neutral-600 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+              className="px-3.5 py-2 text-xs font-mono text-[var(--text-secondary)] bg-[var(--bg-surface)] border border-[var(--border-subtle)] hover:border-emerald-600 transition-colors cursor-pointer whitespace-nowrap shrink-0 rounded-lg"
             >
-              Sheet Style: {paperTheme === 'cream-dossier' ? '3-Ring Archival Paper' : 'Dark Brutalist'}
+              Sheet Style: {paperTheme === 'cream-dossier' ? '3-Ring Archival Paper' : 'Emerald Minimalist'}
             </button>
 
             <button
               onClick={() => triggerFileSeparationSequence(activeContract, selectedRole)}
-              className="flex items-center gap-2 px-3.5 py-2 text-xs font-mono text-neutral-300 bg-[#111111] border border-neutral-800 hover:border-neutral-600 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+              className="flex items-center gap-2 px-3.5 py-2 text-xs font-mono text-[var(--text-secondary)] bg-[var(--bg-surface)] border border-[var(--border-subtle)] hover:border-emerald-600 transition-colors cursor-pointer whitespace-nowrap shrink-0 rounded-lg"
               title="Replay Mosby's File Separation Breakdown"
             >
-              <Layers className="w-3.5 h-3.5 text-[#98FF98]" />
+              <Layers className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
               <span>Replay File Separation</span>
             </button>
 
             <button
               onClick={() => setShowUploadPanel((prev) => !prev)}
-              className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+              className={`flex items-center gap-2 px-4 py-2 text-xs font-semibold rounded-lg transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
                 showUploadPanel
-                  ? 'bg-white text-black'
-                  : 'bg-[#98FF98] text-[#080808] hover:bg-white'
+                  ? 'bg-gray-800 text-white'
+                  : 'bg-[#005f44] text-white hover:bg-[#004733]'
               }`}
             >
               <FilePlus2 className="w-3.5 h-3.5" />
@@ -315,7 +321,7 @@ export const UserSummarizerDashboard: React.FC<UserSummarizerDashboardProps> = (
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -12 }}
             transition={{ duration: 0.25 }}
-            className="mb-12 p-6 sm:p-8 bg-[#101010] border border-neutral-800 grid grid-cols-1 lg:grid-cols-12 gap-8"
+            className="mb-12 p-6 sm:p-8 bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-xl shadow-sm grid grid-cols-1 lg:grid-cols-12 gap-8"
           >
             {/* Drag & Drop File Zone */}
             <div
@@ -331,28 +337,28 @@ export const UserSummarizerDashboard: React.FC<UserSummarizerDashboardProps> = (
                 if (droppedFile) handleFileUpload(droppedFile);
               }}
               onClick={() => fileInputRef.current?.click()}
-              className={`lg:col-span-5 border border-dashed p-8 flex flex-col items-center justify-center text-center cursor-pointer transition-colors ${
+              className={`lg:col-span-5 border border-dashed rounded-lg p-8 flex flex-col items-center justify-center text-center cursor-pointer transition-colors ${
                 isDragging
-                  ? 'border-[#98FF98] bg-[#98FF98]/5'
-                  : 'border-neutral-700 hover:border-neutral-500 bg-[#0B0B0B]'
+                  ? 'border-emerald-500 bg-emerald-50/20'
+                  : 'border-[var(--border-subtle)] hover:border-emerald-600 bg-[var(--bg-canvas)]'
               }`}
             >
               <input
                 ref={fileInputRef}
                 type="file"
-                accept=".txt,.md,.pdf,.doc,.docx"
+                accept=".txt,.md,.pdf,.docx"
                 className="hidden"
                 onChange={(e) => {
                   const file = e.target.files?.[0];
                   if (file) handleFileUpload(file);
                 }}
               />
-              <Upload className="w-7 h-7 text-[#98FF98] mb-4" />
-              <p className="text-sm font-medium text-neutral-100">
-                Drop a contract file here or click to browse
+              <Upload className="w-7 h-7 text-emerald-600 dark:text-emerald-400 mb-4" />
+              <p className="text-sm font-medium text-[var(--text-primary)]">
+                {isExtracting ? 'Extracting text from file...' : 'Drop a contract file here or click to browse'}
               </p>
-              <p className="text-xs text-neutral-500 mt-2 max-w-xs">
-                Supports rent agreements, freelance SOWs, internship offers, and app T&amp;Cs (.txt, .md, .pdf)
+              <p className="text-xs text-[var(--text-secondary)] mt-2 max-w-xs">
+                Supports rent agreements, freelance SOWs, internship offers, and app T&amp;Cs (.txt, .md, .pdf, .docx up to 10 MB)
               </p>
             </div>
 
@@ -361,7 +367,7 @@ export const UserSummarizerDashboard: React.FC<UserSummarizerDashboardProps> = (
               <div className="flex items-center justify-between">
                 <label
                   htmlFor="contract-paste-input"
-                  className="text-xs font-mono text-neutral-400"
+                  className="text-xs font-mono text-[var(--text-secondary)] font-medium"
                 >
                   OR PASTE RAW LEGAL CLAUSES BELOW ({selectedRole.toUpperCase()} LENS ACTIVE)
                 </label>
@@ -371,7 +377,7 @@ export const UserSummarizerDashboard: React.FC<UserSummarizerDashboardProps> = (
                       `1. COMPENSATION & ACCEPTANCE: Contractor shall deliver all software milestones subject to Client's sole and absolute discretion. Undisputed invoices shall be paid Net-60.\n\n2. INTELLECTUAL PROPERTY: Contractor irrevocably assigns all pre-existing libraries, tools, and work product in perpetuity throughout the universe to Client.\n\n3. INDEMNITY & NON-COMPETE: Contractor shall indemnify and hold harmless Client without limitation, and shall not provide services to any competing software company for 18 months.`
                     )
                   }
-                  className="text-xs text-[#98FF98] hover:underline cursor-pointer"
+                  className="text-xs text-emerald-700 dark:text-emerald-400 font-semibold hover:underline cursor-pointer"
                 >
                   Insert Sample Risky Clause Text
                 </button>
@@ -381,22 +387,31 @@ export const UserSummarizerDashboard: React.FC<UserSummarizerDashboardProps> = (
                 id="contract-paste-input"
                 rows={5}
                 value={customPasteText}
-                onChange={(e) => setCustomPasteText(e.target.value)}
+                onChange={(e) => {
+                  setCustomPasteText(e.target.value);
+                  if (uploadError) setUploadError('');
+                }}
                 placeholder="Paste any lease, freelance agreement, or Terms & Conditions text here to run Froggo's file-separation risk analysis..."
-                className="w-full p-4 bg-[#080808] border border-neutral-800 text-sm text-neutral-200 placeholder:text-neutral-600 focus:outline-none focus:border-[#98FF98] font-mono leading-relaxed"
+                className="w-full p-4 bg-[var(--bg-canvas)] border border-[var(--border-subtle)] rounded-lg text-sm text-[var(--text-primary)] placeholder:text-gray-400 focus:outline-none focus:border-emerald-600 font-mono leading-relaxed"
               />
+
+              {uploadError && (
+                <div className="p-3 bg-red-950/60 border border-red-800 text-red-300 text-xs rounded-lg">
+                  {uploadError}
+                </div>
+              )}
 
               <div className="flex items-center justify-end gap-3">
                 <button
                   onClick={() => setShowUploadPanel(false)}
-                  className="px-4 py-2.5 text-xs text-neutral-400 hover:text-white cursor-pointer"
+                  className="px-4 py-2.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] cursor-pointer"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleAnalyzeCustomText}
                   disabled={!customPasteText.trim()}
-                  className="px-6 py-2.5 bg-[#98FF98] text-[#080808] text-xs font-semibold hover:bg-white disabled:opacity-40 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                  className="px-6 py-2.5 bg-[#005f44] text-white text-xs font-semibold rounded-lg hover:bg-[#004733] disabled:opacity-40 transition-colors cursor-pointer whitespace-nowrap shrink-0 shadow-sm"
                 >
                   Separate &amp; Decode Text
                 </button>
@@ -416,10 +431,10 @@ export const UserSummarizerDashboard: React.FC<UserSummarizerDashboardProps> = (
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="py-16 px-6 bg-[#0C0C0C] border border-neutral-800 mb-12"
+            className="py-16 px-6 bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-xl mb-12 shadow-sm"
           >
             <div className="max-w-3xl mx-auto">
-              <div className="flex items-center justify-between text-xs font-mono text-[#98FF98] mb-6">
+              <div className="flex items-center justify-between text-xs font-mono text-emerald-700 dark:text-emerald-400 font-semibold mb-6">
                 <span>MOSBY’S ARCHIVAL DECONSTRUCTION IN PROGRESS</span>
                 <span className="tabular-nums">STAGE 0{processingStep + 1} / 04</span>
               </div>
@@ -488,34 +503,34 @@ export const UserSummarizerDashboard: React.FC<UserSummarizerDashboardProps> = (
             {/* =================================================================
                 PROMINENT RISK SCORE & CONTRACT TELEMETRY STRIP
                ================================================================= */}
-            <div className="bg-[#101010] border border-neutral-800 p-6 sm:p-8 mb-10">
+            <div className="bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-xl shadow-sm p-6 sm:p-8 mb-10">
               <div className="grid grid-cols-1 lg:grid-cols-12 gap-8 items-center">
                 {/* Left: Dossier Title & Metadata */}
                 <div className="lg:col-span-5 space-y-2">
-                  <div className="flex items-center gap-2 text-xs text-neutral-400 font-mono">
+                  <div className="flex items-center gap-2 text-xs text-[var(--text-secondary)] font-mono">
                     <span>{activeContract.fileCode}</span>
                     <span aria-hidden="true">·</span>
                     <span>{activeContract.documentType}</span>
                     <span aria-hidden="true">·</span>
                     <span className="tabular-nums">{activeContract.wordCount.toLocaleString()} words</span>
                   </div>
-                  <h2 className="text-2xl sm:text-3xl font-display font-bold text-white tracking-tight">
+                  <h2 className="text-2xl sm:text-3xl font-display font-bold text-[var(--text-primary)] tracking-tight">
                     {activeContract.title}
                   </h2>
-                  <p className="text-sm text-neutral-400">
-                    Counterparty: <span className="text-neutral-200">{activeContract.counterparty}</span>
+                  <p className="text-sm text-[var(--text-secondary)]">
+                    Counterparty: <span className="text-[var(--text-primary)] font-medium">{activeContract.counterparty}</span>
                   </p>
                 </div>
 
                 {/* Center: Key Obligations 4-Metric Grid */}
-                <div className="lg:col-span-4 grid grid-cols-2 gap-4 border-y lg:border-y-0 lg:border-x border-neutral-800/80 py-4 lg:py-0 lg:px-6">
+                <div className="lg:col-span-4 grid grid-cols-2 gap-4 border-y lg:border-y-0 lg:border-x border-[var(--border-subtle)] py-4 lg:py-0 lg:px-6">
                   {activeContract.plainSummary.keyObligations.map((ob) => (
                     <div key={ob.label} className="space-y-1">
-                      <div className="text-xs text-neutral-500">{ob.label}</div>
-                      <div className="text-base font-mono font-semibold text-white tabular-nums">
+                      <div className="text-xs text-[var(--text-secondary)]">{ob.label}</div>
+                      <div className="text-base font-mono font-semibold text-[var(--text-primary)] tabular-nums">
                         {ob.metric}
                       </div>
-                      <div className="text-xs text-neutral-400 line-clamp-1" title={ob.detail}>
+                      <div className="text-xs text-[var(--text-secondary)] line-clamp-1" title={ob.detail}>
                         {ob.detail}
                       </div>
                     </div>
@@ -525,20 +540,20 @@ export const UserSummarizerDashboard: React.FC<UserSummarizerDashboardProps> = (
                 {/* Right: Prominent Visual Risk Score Dial */}
                 <div className="lg:col-span-3 flex items-center justify-between lg:justify-end gap-6">
                   <div className="text-left lg:text-right">
-                    <div className="text-xs font-mono text-neutral-400 uppercase">
+                    <div className="text-xs font-mono text-[var(--text-secondary)] uppercase">
                       Froggo Risk Index
                     </div>
                     <div
                       className={`text-4xl sm:text-5xl font-display font-extrabold tabular-nums tracking-tight ${
                         activeContract.riskScore >= 75
-                          ? 'text-amber-400'
-                          : 'text-[#98FF98]'
+                          ? 'text-amber-500'
+                          : 'text-emerald-600 dark:text-emerald-400'
                       }`}
                     >
                       {activeContract.riskScore}
-                      <span className="text-lg font-normal text-neutral-500">/100</span>
+                      <span className="text-lg font-normal text-[var(--text-secondary)]">/100</span>
                     </div>
-                    <div className="text-xs text-neutral-300 mt-1">
+                    <div className="text-xs text-[var(--text-secondary)] mt-1">
                       {activeContract.riskVerdict}
                     </div>
                   </div>
@@ -551,7 +566,7 @@ export const UserSummarizerDashboard: React.FC<UserSummarizerDashboardProps> = (
                         cy="32"
                         r="26"
                         fill="none"
-                        stroke="#222222"
+                        stroke="var(--border-subtle)"
                         strokeWidth="5"
                       />
                       <circle
@@ -559,7 +574,7 @@ export const UserSummarizerDashboard: React.FC<UserSummarizerDashboardProps> = (
                         cy="32"
                         r="26"
                         fill="none"
-                        stroke={activeContract.riskScore >= 75 ? '#FBBF24' : '#98FF98'}
+                        stroke={activeContract.riskScore >= 75 ? '#FBBF24' : '#005f44'}
                         strokeWidth="5"
                         strokeDasharray={2 * Math.PI * 26}
                         strokeDashoffset={
@@ -568,7 +583,7 @@ export const UserSummarizerDashboard: React.FC<UserSummarizerDashboardProps> = (
                         strokeLinecap="square"
                       />
                     </svg>
-                    <div className="absolute inset-0 flex items-center justify-center text-[10px] font-mono text-neutral-300">
+                    <div className="absolute inset-0 flex items-center justify-center text-[10px] font-mono text-[var(--text-secondary)]">
                       RISK
                     </div>
                   </div>
@@ -644,12 +659,12 @@ export const UserSummarizerDashboard: React.FC<UserSummarizerDashboardProps> = (
                 </div>
 
                 {/* 2. Synchronized Original Contract Clauses (Highlights when Risk Flag is clicked) */}
-                <div className="bg-[#0C0C0C] border border-neutral-800 p-6 sm:p-8 space-y-6">
-                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-neutral-900 pb-4">
-                    <h3 className="text-sm font-mono uppercase tracking-wider text-neutral-200">
+                <div className="bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-xl shadow-sm p-6 sm:p-8 space-y-6">
+                  <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-subtle)] pb-4">
+                    <h3 className="text-sm font-mono uppercase tracking-wider text-[var(--text-primary)] font-bold">
                       02. Verbatim Contract Source &amp; Clause Citations
                     </h3>
-                    <span className="text-xs text-neutral-500">
+                    <span className="text-xs text-[var(--text-secondary)]">
                       Click any Sticky Note on the right to jump &amp; highlight clause
                     </span>
                   </div>
@@ -670,23 +685,23 @@ export const UserSummarizerDashboard: React.FC<UserSummarizerDashboardProps> = (
                           onClick={() => {
                             if (linkedFlag) setSelectedFlagId(linkedFlag.id);
                           }}
-                          className={`p-5 border transition-all duration-200 cursor-pointer ${
+                          className={`p-5 border rounded-xl transition-all duration-200 cursor-pointer ${
                             isHighlighted
-                              ? 'bg-[#161916] border-[#98FF98]'
-                              : 'bg-[#101010] border-neutral-900 hover:border-neutral-700'
+                              ? 'bg-emerald-50/60 dark:bg-emerald-950/40 border-emerald-600 shadow-sm'
+                              : 'bg-[var(--bg-canvas)] border-[var(--border-subtle)] hover:border-emerald-600/50'
                           }`}
                         >
                           <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
                             <div className="flex items-center gap-3">
-                              <span className="font-mono text-xs text-[#98FF98] tabular-nums">
+                              <span className="font-mono text-xs text-emerald-700 dark:text-emerald-400 font-bold tabular-nums">
                                 SECTION {clause.sectionNumber}
                               </span>
-                              <h4 className="text-base font-semibold text-white">
+                              <h4 className="text-base font-semibold text-[var(--text-primary)]">
                                 {clause.title}
                               </h4>
                             </div>
                             {linkedFlag && (
-                              <span className="text-xs font-mono text-amber-400">
+                              <span className="text-xs font-mono text-amber-600 dark:text-amber-400 font-semibold">
                                 LINKED TO {linkedFlag.tabCode}
                               </span>
                             )}
@@ -694,19 +709,19 @@ export const UserSummarizerDashboard: React.FC<UserSummarizerDashboardProps> = (
 
                           {/* Verbatim Legal Text */}
                           <p
-                            className={`font-mono text-xs sm:text-sm leading-relaxed p-3.5 border ${
+                            className={`font-mono text-xs sm:text-sm leading-relaxed p-3.5 border rounded-lg ${
                               isHighlighted
-                                ? 'bg-[#090D09] border-[#98FF98]/40 text-neutral-100'
-                                : 'bg-[#080808] border-neutral-900 text-neutral-400'
+                                ? 'bg-white dark:bg-slate-900 border-emerald-500/40 text-[var(--text-primary)]'
+                                : 'bg-white dark:bg-slate-900/60 border-[var(--border-subtle)] text-[var(--text-secondary)]'
                             }`}
                           >
                             {clause.verbatimText}
                           </p>
 
                           {/* Plain-English Translation Callout */}
-                          <div className="mt-3 pt-3 border-t border-neutral-900 flex items-start justify-between gap-4">
-                            <p className="text-xs sm:text-sm text-neutral-300">
-                              <span className="text-[#98FF98] font-mono text-xs mr-2">
+                          <div className="mt-3 pt-3 border-t border-[var(--border-subtle)] flex items-start justify-between gap-4">
+                            <p className="text-xs sm:text-sm text-[var(--text-primary)]">
+                              <span className="text-emerald-700 dark:text-emerald-400 font-mono text-xs font-bold mr-2">
                                 PLAIN ENGLISH:
                               </span>
                               {clause.plainMeaning}
@@ -722,13 +737,13 @@ export const UserSummarizerDashboard: React.FC<UserSummarizerDashboardProps> = (
               {/* RIGHT SIDEBAR (5/12): MOSBY'S FILES COLORED STICKY NOTES & DIE-CUT TABS */}
               <div className="lg:col-span-5 lg:sticky lg:top-24 space-y-6">
                 {/* Die-Cut Folder Tab Switcher Header */}
-                <div className="flex items-end gap-2 border-b border-neutral-800 pt-2">
+                <div className="flex items-end gap-2 border-b border-[var(--border-subtle)] pt-2">
                   <button
                     onClick={() => setRightSidebarTab('risks')}
                     className={`px-6 py-3 rounded-t-xl font-serif text-sm font-semibold transition-transform cursor-pointer whitespace-nowrap shrink-0 ${
                       rightSidebarTab === 'risks'
-                        ? 'bg-[#C91D12] text-white translate-y-0 shadow-lg'
-                        : 'bg-[#141414] text-neutral-400 hover:text-white translate-y-1'
+                        ? 'bg-rose-700 text-white translate-y-0 shadow-lg'
+                        : 'bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] translate-y-1'
                     }`}
                   >
                     Risk Flags ({activeContract.riskFlags.length})
@@ -737,8 +752,8 @@ export const UserSummarizerDashboard: React.FC<UserSummarizerDashboardProps> = (
                     onClick={() => setRightSidebarTab('missing')}
                     className={`px-6 py-3 rounded-t-xl font-serif text-sm font-semibold transition-transform cursor-pointer whitespace-nowrap shrink-0 ${
                       rightSidebarTab === 'missing'
-                        ? 'bg-[#1351D8] text-white translate-y-0 shadow-lg'
-                        : 'bg-[#141414] text-neutral-400 hover:text-white translate-y-1'
+                        ? 'bg-emerald-700 text-white translate-y-0 shadow-lg'
+                        : 'bg-[var(--bg-elevated)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] translate-y-1'
                     }`}
                   >
                     Missing Clauses ({activeContract.missingClauses.length})
@@ -763,20 +778,20 @@ export const UserSummarizerDashboard: React.FC<UserSummarizerDashboardProps> = (
                           whileHover={{ scale: 1.01 }}
                           onClick={() => handleSelectRiskFlag(flag.id, flag.clauseId)}
                           style={{
-                            backgroundColor: isSelected ? stickyBg : '#141414',
-                            color: isSelected ? '#111111' : '#F5F5F5',
+                            backgroundColor: isSelected ? stickyBg : 'var(--bg-surface)',
+                            color: isSelected ? '#111111' : 'var(--text-primary)',
                             rotate: isSelected ? (idx % 2 === 0 ? -0.8 : 0.8) : 0
                           }}
-                          className={`p-5 border transition-colors cursor-pointer shadow-xl ${
+                          className={`p-5 border rounded-xl transition-colors cursor-pointer shadow-md ${
                             isSelected
-                              ? 'border-white my-4'
-                              : 'border-neutral-800 hover:border-neutral-600'
+                              ? 'border-emerald-600 my-4 shadow-lg'
+                              : 'border-[var(--border-subtle)] hover:border-emerald-600/60'
                           }`}
                         >
                           {/* Top Archival File Tab Strip */}
                           <div
                             className={`pb-2.5 mb-3 border-b flex items-center justify-between text-xs font-mono ${
-                              isSelected ? 'border-black/20' : 'border-neutral-800'
+                              isSelected ? 'border-black/20' : 'border-[var(--border-subtle)]'
                             }`}
                           >
                             <span className="font-bold">{flag.tabCode}</span>
@@ -794,13 +809,13 @@ export const UserSummarizerDashboard: React.FC<UserSummarizerDashboardProps> = (
 
                             {/* Role-Specific Impact Box */}
                             <div
-                              className={`p-3.5 border space-y-1 ${
+                              className={`p-3.5 border rounded-lg space-y-1 ${
                                 isSelected
                                   ? 'bg-black/10 border-black/20 text-[#111111]'
-                                  : 'bg-[#090909] border-neutral-800 text-neutral-300'
+                                  : 'bg-[var(--bg-canvas)] border-[var(--border-subtle)] text-[var(--text-secondary)]'
                               }`}
                             >
-                              <div className="text-[11px] font-mono uppercase font-bold">
+                              <div className="text-[11px] font-mono uppercase font-bold text-[var(--text-primary)]">
                                 Impact on You as a {selectedRole}:
                               </div>
                               <p className="text-xs leading-relaxed">
@@ -883,13 +898,13 @@ export const UserSummarizerDashboard: React.FC<UserSummarizerDashboardProps> = (
             {/* =================================================================
                 SECTION 3: ACTIONABLE INSIGHTS — QUESTIONS TO ASK OR NEGOTIATE
                ================================================================= */}
-            <div className="bg-[#101010] border border-neutral-800 p-6 sm:p-10 mb-12">
-              <div className="flex flex-wrap items-end justify-between gap-4 border-b border-neutral-900 pb-6 mb-8">
+            <div className="bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-xl shadow-sm p-6 sm:p-10 mb-12">
+              <div className="flex flex-wrap items-end justify-between gap-4 border-b border-[var(--border-subtle)] pb-6 mb-8">
                 <div>
-                  <div className="text-xs font-mono text-[#98FF98] mb-2">
+                  <div className="text-xs font-mono text-emerald-700 dark:text-emerald-400 font-semibold mb-2">
                     03. ACTIONABLE NEGOTIATION PLAYBOOK
                   </div>
-                  <h3 className="text-2xl sm:text-3xl font-display font-bold text-white tracking-tight">
+                  <h3 className="text-2xl sm:text-3xl font-display font-bold text-[var(--text-primary)] tracking-tight">
                     Questions to Ask or Negotiate Before Signing
                   </h3>
                 </div>
@@ -901,7 +916,7 @@ export const UserSummarizerDashboard: React.FC<UserSummarizerDashboardProps> = (
                       .join('\n\n');
                     handleCopyText('all-negotiation-emails', allEmails);
                   }}
-                  className="flex items-center gap-2 px-5 py-3 bg-[#98FF98] text-[#080808] text-xs font-semibold hover:bg-white transition-colors cursor-pointer whitespace-nowrap shrink-0"
+                  className="flex items-center gap-2 px-5 py-3 bg-[#005f44] text-white text-xs font-semibold rounded-lg hover:bg-[#004733] transition-colors cursor-pointer whitespace-nowrap shrink-0 shadow-sm"
                 >
                   {copiedId === 'all-negotiation-emails' ? (
                     <>
@@ -921,33 +936,33 @@ export const UserSummarizerDashboard: React.FC<UserSummarizerDashboardProps> = (
                 {activeContract.negotiationQuestions.map((item, idx) => (
                   <div
                     key={item.id}
-                    className="bg-[#0B0B0B] border border-neutral-800 p-6 flex flex-col justify-between space-y-6"
+                    className="bg-[var(--bg-canvas)] border border-[var(--border-subtle)] rounded-xl p-6 flex flex-col justify-between space-y-6"
                   >
                     <div className="space-y-4">
-                      <div className="text-xs font-mono text-neutral-400">
+                      <div className="text-xs font-mono text-[var(--text-secondary)]">
                         0{idx + 1} · {item.targetClause}
                       </div>
-                      <h4 className="text-base font-semibold text-white leading-snug">
+                      <h4 className="text-base font-semibold text-[var(--text-primary)] leading-snug">
                         “{item.questionToAsk}”
                       </h4>
-                      <div className="p-3.5 bg-[#121212] border border-neutral-800 space-y-2">
-                        <div className="text-[11px] font-mono text-[#98FF98]">
+                      <div className="p-3.5 bg-[var(--bg-surface)] border border-[var(--border-subtle)] rounded-lg space-y-2">
+                        <div className="text-[11px] font-mono text-emerald-700 dark:text-emerald-400 font-semibold">
                           READY-TO-SEND EMAIL SCRIPT:
                         </div>
-                        <p className="text-xs text-neutral-300 leading-relaxed">
+                        <p className="text-xs text-[var(--text-secondary)] leading-relaxed">
                           {item.emailSnippet}
                         </p>
                       </div>
                     </div>
 
-                    <div className="pt-4 border-t border-neutral-900 space-y-3">
-                      <p className="text-xs text-neutral-500">
-                        <strong className="text-neutral-300">Why this works:</strong>{' '}
+                    <div className="pt-4 border-t border-[var(--border-subtle)] space-y-3">
+                      <p className="text-xs text-[var(--text-secondary)]">
+                        <strong className="text-[var(--text-primary)]">Why this works:</strong>{' '}
                         {item.leverageNote}
                       </p>
                       <button
                         onClick={() => handleCopyText(item.id, item.emailSnippet)}
-                        className="w-full py-2.5 border border-neutral-700 hover:border-[#98FF98] text-xs font-mono text-neutral-200 hover:text-[#98FF98] transition-colors flex items-center justify-center gap-2 cursor-pointer"
+                        className="w-full py-2.5 border border-[var(--border-subtle)] hover:border-emerald-600 rounded-lg text-xs font-mono text-[var(--text-primary)] hover:text-emerald-700 transition-colors flex items-center justify-center gap-2 cursor-pointer"
                       >
                         {copiedId === item.id ? (
                           <>
@@ -973,9 +988,9 @@ export const UserSummarizerDashboard: React.FC<UserSummarizerDashboardProps> = (
       {/* =====================================================================
           CLEAR, SUBTLE "NOT LEGAL ADVICE" DISCLAIMER FOOTER
          ===================================================================== */}
-      <footer className="pt-6 border-t border-neutral-900 flex flex-wrap items-center justify-between gap-4 text-xs text-neutral-500">
+      <footer className="pt-6 border-t border-[var(--border-subtle)] flex flex-wrap items-center justify-between gap-4 text-xs text-[var(--text-secondary)]">
         <div>
-          <strong className="text-neutral-400 font-medium">Disclaimer: Not Legal Advice.</strong>{' '}
+          <strong className="text-[var(--text-primary)] font-medium">Disclaimer: Not Legal Advice.</strong>{' '}
           Froggo provides automated plain-English summaries and clause citations for informational
           and educational purposes only.
         </div>

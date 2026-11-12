@@ -16,6 +16,7 @@ import {
   CheckCircle2,
   Copy,
   Download,
+  Edit2,
   FileCheck,
   FileText,
   HelpCircle,
@@ -32,16 +33,24 @@ import {
   ShieldCheck,
   Sparkles,
   Sun,
+  Trash2,
   Upload,
   UserCheck,
   Wand2
 } from 'lucide-react';
 import { ContractShieldHub } from './components/ContractShieldHub';
 import { FroggoLogo } from './components/FroggoLogo';
-import { LegalAIAssistant } from './components/LegalAIAssistant';
+import { LegalAIAssistant, type AssistantClause } from './components/LegalAIAssistant';
+import { Sidebar, PageType } from './components/workspace/Sidebar';
+import { Topbar } from './components/workspace/Topbar';
+import { HomeView } from './components/workspace/HomeView';
+import { UploadView } from './components/workspace/UploadView';
+import { ReadingRoomView } from './components/workspace/ReadingRoomView';
+
+import { ScoreBreakdown } from './lib/types';
 
 export type RoleType = 'Freelancer' | 'Tenant' | 'Student';
-export type ClauseRiskLevel = 'high' | 'medium' | 'safe';
+export type ClauseRiskLevel = 'high' | 'medium' | 'safe' | 'not_assessed';
 
 export interface FroggoFile {
   id: string;
@@ -49,6 +58,7 @@ export interface FroggoFile {
   type: string;
   subtitle: string;
   score: number;
+  scoreBreakdown?: ScoreBreakdown;
   lastUpdated: string;
   clauses: string[];
   clauseSeverities: ClauseRiskLevel[];
@@ -62,6 +72,8 @@ export interface FroggoFile {
     sec27Status: string;
     msme45DayStatus: string;
     tds194JStatus: string;
+    sec43BhStatus?: string;
+    dpdpStatus?: string;
   };
   isCustom?: boolean;
 }
@@ -72,12 +84,25 @@ const INITIAL_FILES: FroggoFile[] = [
     title: 'Freelancer Master Service Agreement (MSA)',
     type: 'Work & Freelance',
     subtitle: 'Independent contractor agreement with IP assignment, Net-60 payment, and non-compete clauses.',
-    score: 68,
+    score: 65,
+    scoreBreakdown: {
+      totalScore: 65,
+      baseScore: 0,
+      penalties: [
+        { clauseId: 'c-001', title: 'Delayed Payment Window & Subjective Approval', severity: 'high', points: 20, reason: 'Payment within 60 days exceeds MSMED Act Section 15 limit of 45 days.' },
+        { clauseId: 'c-002', title: 'Broad IP Ownership Transfer & Prior Tool Sweep', severity: 'medium', points: 15, reason: 'Transfers pre-existing tools upon creation before invoice settlement.' },
+        { clauseId: 'c-003', title: 'Post-Termination Non-Compete Restraint', severity: 'high', points: 25, reason: '18-month non-compete void under Section 27, Indian Contract Act.' },
+      ],
+      unassessedClausesCount: 0,
+      totalClausesCount: 4,
+      assessedClausesCount: 4,
+      disclaimer: 'Froggo automated estimate for informational guidance, not a formal legal opinion or advocate certification under the Advocates Act, 1961.',
+    },
     lastUpdated: 'Sample Contract · India Statutory Audit',
     indiaStatutoryChecks: {
-      sec27Status: 'High Risk: 18-month post-exit non-compete is void under Section 27, Indian Contract Act',
-      msme45DayStatus: 'Violation: Net-60 exceeds the 45-day statutory maximum under Section 15, MSMED Act',
-      tds194JStatus: 'Action Needed: Specify 2% technical TDS (Sec 194J(b)) instead of 10% deduction'
+      sec27Status: 'Issue detected: 18-month post-exit non-compete is generally void under Section 27, Indian Contract Act, 1872',
+      msme45DayStatus: 'Issue detected: Net-60 payment exceeds the 45-day statutory maximum under Section 15, MSMED Act, 2006',
+      tds194JStatus: 'Issue detected: Verify applicable rate — specify 2% technical TDS (Sec 194J(b)) instead of 10% deduction'
     },
     clauses: [
       '1. Payment Terms: Payment shall be remitted within 60 days of invoice approval. The Company may withhold payment pending satisfactory completion in its sole discretion.',
@@ -143,12 +168,24 @@ const INITIAL_FILES: FroggoFile[] = [
     title: 'Residential Leave & License (Tenant Lease)',
     type: 'Rent & Housing',
     subtitle: '11-month residential flat & PG rental agreement with security deposit and entry rules.',
-    score: 54,
+    score: 40,
+    scoreBreakdown: {
+      totalScore: 40,
+      baseScore: 0,
+      penalties: [
+        { clauseId: 'c-001', title: 'Mandatory painting deduction', severity: 'medium', points: 15, reason: 'Unilateral deposit deduction for painting.' },
+        { clauseId: 'c-002', title: 'Unannounced landlord entry', severity: 'high', points: 25, reason: 'Entry without 24-hour advance notice disrupts peaceful possession.' },
+      ],
+      unassessedClausesCount: 0,
+      totalClausesCount: 4,
+      assessedClausesCount: 4,
+      disclaimer: 'Froggo automated estimate for informational guidance, not a formal legal opinion or advocate certification under the Advocates Act, 1961.',
+    },
     lastUpdated: 'Sample Contract · Residential Housing',
     indiaStatutoryChecks: {
-      sec27Status: 'Compliant: Not applicable to residential Leave & License agreements',
-      msme45DayStatus: 'Warning: Security deposit refund window exceeds 30 days without interest',
-      tds194JStatus: 'Compliant: Rent TDS (Sec 194-IB) applies only if monthly rent exceeds ₹50,000'
+      sec27Status: 'Not applicable to this contract type (Section 27 applies to trade or profession, not residential leases)',
+      msme45DayStatus: 'Not applicable to this contract type (Residential tenancy)',
+      tds194JStatus: 'Not applicable to this contract type (Rent TDS is governed by Sec 194-IB if rent > ₹50,000/mo)'
     },
     clauses: [
       '1. Security Deposit Deduction: The security deposit may be retained for restoration of the premises to the satisfaction of the Licensor, plus a mandatory ₹8,500 move-out painting and sanitization deduction.',
@@ -211,12 +248,24 @@ const INITIAL_FILES: FroggoFile[] = [
     title: 'SaaS & App Subscription Terms of Service',
     type: 'Apps & Subscriptions',
     subtitle: 'Digital workspace subscription with auto-renewal, AI model training, and refund rules.',
-    score: 72,
+    score: 40,
+    scoreBreakdown: {
+      totalScore: 40,
+      baseScore: 0,
+      penalties: [
+        { clauseId: 'c-001', title: 'Annual Auto-Renewal Lock', severity: 'medium', points: 15, reason: '30-day cancellation lock before renewal.' },
+        { clauseId: 'c-002', title: 'Commercial AI Training & Ad Sharing', severity: 'high', points: 25, reason: 'Permanent AI model training without clear DPDP erasure.' },
+      ],
+      unassessedClausesCount: 0,
+      totalClausesCount: 3,
+      assessedClausesCount: 3,
+      disclaimer: 'Froggo automated estimate for informational guidance, not a formal legal opinion or advocate certification under the Advocates Act, 1961.',
+    },
     lastUpdated: 'Sample Contract · DPDP Act 2023 Audit',
     indiaStatutoryChecks: {
-      sec27Status: 'Compliant: No restraint of trade clause detected',
-      msme45DayStatus: 'Warning: Annual auto-debit without 30-day advance renewal reminder',
-      tds194JStatus: 'Info: Verify 18% GST tax invoice and Section 194J TDS on B2B software plans'
+      sec27Status: 'Not detected in this text (No restraint of trade clause detected)',
+      msme45DayStatus: 'Not applicable to this contract type (Consumer SaaS subscription)',
+      tds194JStatus: 'Not detected in this text (Verify 18% GST tax invoice on B2B software plans)'
     },
     clauses: [
       '1. Automatic Renewal: Your subscription automatically renews for successive annual terms at the prevailing rate unless cancelled at least 30 days before the renewal date.',
@@ -334,149 +383,20 @@ const CREATOR_CLAUSES_TO_ADD = [
   }
 ];
 
+import { analyzeContractDocument, contractDocumentToFroggoFile } from './lib/documentAnalysis';
+import { extractDocumentText } from './lib/extractDocumentText';
+import { sanitizeTextForNetwork } from './lib/masking';
+import {
+  getAllStoredContracts,
+  saveContractToStore,
+  deleteContractFromStore,
+  renameContractInStore,
+} from './lib/contractStore';
+import { exportContractPdf } from './lib/generatePdfReport';
+
 function buildCustomFileFromText(rawText: string, fileName: string, role: RoleType): FroggoFile {
-  const sanitized = rawText
-    .replace(/\b[A-Z]{5}[0-9]{4}[A-Z]{1}\b/g, '[REDACTED-PAN]')
-    .replace(/\b\d{4}\s\d{4}\s\d{4}\b/g, '[REDACTED-AADHAAR]');
-
-  const chunks = sanitized
-    .split(/\n\s*\n|\r\n\s*\r\n|(?=\d+\.\s)/)
-    .map((s) => s.trim())
-    .filter((s) => s.length > 25)
-    .slice(0, 6);
-
-  const clauses =
-    chunks.length >= 2
-      ? chunks
-      : [
-          sanitized.trim() ||
-            'Payment shall be remitted within 60 days of invoice approval in Company’s sole discretion.',
-          'All work product and pre-existing utilities shall become the exclusive property of the Company upon creation.',
-          'Contractor shall not engage with any competing business for 18 months after termination.'
-        ];
-
-  const plain: string[] = [];
-  const risks: string[] = [];
-  const questions: string[] = [];
-  const clauseSeverities: ClauseRiskLevel[] = [];
-
-  let riskAccumulator = 28;
-  let sec27Flag = false;
-  let msmeFlag = false;
-  let tdsFlag = false;
-
-  clauses.forEach((c) => {
-    const lower = c.toLowerCase();
-    if (lower.includes('competi') || lower.includes('restraint') || lower.includes('non-compete')) {
-      sec27Flag = true;
-      riskAccumulator += 20;
-      clauseSeverities.push('high');
-      risks.push('Post-termination non-compete (Void under Sec 27)');
-      plain.push(
-        'This clause tries to restrict where you can work after the contract ends. Under Section 27 of the Indian Contract Act, post-termination non-competes are generally void.'
-      );
-      questions.push(
-        'Can we replace this post-exit non-compete with a standard confidentiality and non-solicitation clause?'
-      );
-    } else if (
-      lower.includes('60 day') ||
-      lower.includes('90 day') ||
-      lower.includes('sole discretion') ||
-      lower.includes('withhold')
-    ) {
-      msmeFlag = true;
-      riskAccumulator += 18;
-      clauseSeverities.push('high');
-      risks.push('Delayed payment window / Subjective approval');
-      plain.push(
-        'Payment is delayed beyond 45 days or tied to subjective approval, which conflicts with Section 15 of the MSMED Act.'
-      );
-      questions.push(
-        'Can we set a clear 15-to-30 day payment deadline with objective acceptance criteria?'
-      );
-    } else if (
-      lower.includes('work product') ||
-      lower.includes('exclusive property') ||
-      lower.includes('intellectual property') ||
-      lower.includes('perpetuity')
-    ) {
-      riskAccumulator += 14;
-      clauseSeverities.push('medium');
-      risks.push('Broad IP transfer before payment');
-      plain.push(
-        'Transfers ownership of your work (and potentially pre-existing tools) immediately upon creation rather than after full payment.'
-      );
-      questions.push(
-        'Can IP ownership transfer only upon full invoice payment, with pre-existing tools excluded?'
-      );
-    } else if (lower.includes('deposit') || lower.includes('enter') || lower.includes('repair')) {
-      riskAccumulator += 14;
-      clauseSeverities.push('medium');
-      risks.push('Broad tenant deduction or unannounced entry');
-      plain.push(
-        'Gives the landlord broad discretion over deposit deductions, repairs, or property entry.'
-      );
-      questions.push(
-        'Can we require 24-hour advance notice for entry and exempt normal wear and tear?'
-      );
-    } else {
-      if (lower.includes('10%') || lower.includes('tds')) tdsFlag = true;
-      clauseSeverities.push('safe');
-      risks.push('Standard contractual obligation (Low Risk)');
-      plain.push(
-        'This clause sets out a standard operational or confidentiality obligation with balanced responsibilities.'
-      );
-      questions.push(
-        'Are the timelines and notice obligations under this clause mutual for both parties?'
-      );
-    }
-  });
-
-  const finalScore = Math.min(92, Math.max(22, riskAccumulator));
-
-  return {
-    id: 'CUSTOM',
-    title: fileName ? fileName.replace(/\.[^/.]+$/, '') : 'Uploaded Contract Analysis',
-    type: `Custom ${role} Document`,
-    subtitle: 'Analyzed locally in your browser with automatic PII masking and Indian statutory checks.',
-    score: finalScore,
-    lastUpdated: 'Just now · Local Browser Session',
-    isCustom: true,
-    indiaStatutoryChecks: {
-      sec27Status: sec27Flag
-        ? 'High Risk: Post-termination non-compete detected (Void under Sec 27, Indian Contract Act)'
-        : 'Compliant: No unlawful Section 27 restraint of trade detected',
-      msme45DayStatus: msmeFlag
-        ? 'Violation: Payment term exceeds 45-day statutory ceiling (Sec 15 MSMED Act)'
-        : 'Compliant: Payment timeline aligns with MSME 45-day rule',
-      tds194JStatus: tdsFlag
-        ? 'Check Rate: Verify 2% technical TDS (Sec 194J(b)) vs 10% professional rate'
-        : 'Info: Specify 2% TDS under Sec 194J(b) for software/technical deliverables'
-    },
-    clauses,
-    clauseSeverities,
-    plain,
-    risks,
-    questions,
-    missing: [
-      'Mutual 14-day termination notice period',
-      'MSME Section 16 late-payment interest protection',
-      'Explicit liability cap (limited to fees paid)'
-    ],
-    missingWording: {
-      'Mutual 14-day termination notice period':
-        'Either party may terminate this Agreement upon 14 calendar days written notice, with pro-rata payment for all work completed.',
-      'MSME Section 16 late-payment interest protection':
-        'All undisputed invoices shall be paid within 15 days (and never beyond 45 days per the MSMED Act, 2006).',
-      'Explicit liability cap (limited to fees paid)':
-        'Neither party’s total aggregate liability under this Agreement shall exceed the total fees paid in the preceding three (3) months.'
-    },
-    roleImpact: {
-      Freelancer: plain,
-      Tenant: plain,
-      Student: plain
-    }
-  };
+  const doc = analyzeContractDocument(rawText, fileName, role);
+  return contractDocumentToFroggoFile(doc);
 }
 
 export default function App() {
@@ -492,6 +412,16 @@ export default function App() {
   const [files, setFiles] = useState<FroggoFile[]>(INITIAL_FILES);
   const [selectedFileIndex, setSelectedFileIndex] = useState<number>(0);
   const [activeClauseIndex, setActiveClauseIndex] = useState<number>(0);
+  const clauseRefs = useRef<Record<number, HTMLButtonElement | null>>({});
+
+  function scrollToClause(index: number) {
+    setActiveClauseIndex(index);
+    const el = clauseRefs.current[index];
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+  }
+
   const [role, setRole] = useState<RoleType>('Freelancer');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [useSerifLegalText, setUseSerifLegalText] = useState<boolean>(false);
@@ -502,6 +432,7 @@ export default function App() {
   const [uploadText, setUploadText] = useState<string>('');
   const [uploadFilename, setUploadFilename] = useState<string>('');
   const [uploadError, setUploadError] = useState<string>('');
+  const [isExtracting, setIsExtracting] = useState<boolean>(false);
   const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -517,6 +448,24 @@ export default function App() {
     document.documentElement.style.colorScheme = darkMode ? 'dark' : 'light';
     try { localStorage.setItem('froggo-theme', darkMode ? 'dark' : 'light'); } catch {}
   }, [darkMode]);
+
+  // Load persisted contracts from IndexedDB on startup
+  useEffect(() => {
+    async function loadHistory() {
+      try {
+        const stored = await getAllStoredContracts();
+        if (stored.length > 0) {
+          const storedFiles = stored.map(contractDocumentToFroggoFile);
+          const storedIds = new Set(stored.map((d) => d.id));
+          const remainingSamples = INITIAL_FILES.filter((s) => !storedIds.has(s.id));
+          setFiles([...storedFiles, ...remainingSamples]);
+        }
+      } catch (err) {
+        console.error('Failed to load contract history from IndexedDB:', err);
+      }
+    }
+    loadHistory();
+  }, []);
 
   const currentFile = files[selectedFileIndex] || files[0];
 
@@ -534,48 +483,49 @@ export default function App() {
 
   async function handleFileUpload(file?: File) {
     if (!file) return;
-    if (!/\.(txt|pdf|docx|md)$/i.test(file.name)) {
-      setUploadError('Please choose a PDF, DOCX, TXT, or MD file.');
-      return;
-    }
-    if (file.size > 10 * 1024 * 1024) {
-      setUploadError('Please choose a file smaller than 10 MB.');
-      return;
-    }
     setUploadError('');
-    setUploadFilename(file.name);
-    if (/\.(txt|md)$/i.test(file.name)) {
-      const content = await file.text();
-      setUploadText(content);
-    } else {
-      setUploadText(
-        `[Extracted from ${file.name}]\n\n1. Payment shall be remitted within 60 days of invoice approval in the Company's sole discretion.\n\n2. All work product and pre-existing utilities shall become the exclusive property of the Company upon creation.\n\n3. Contractor shall not work for any competing business for 18 months after termination.`
-      );
+    setIsExtracting(true);
+    try {
+      const result = await extractDocumentText(file);
+      setUploadFilename(result.fileName);
+      setUploadText(result.text);
+    } catch (err: unknown) {
+      setUploadError(err instanceof Error ? err.message : 'Failed to extract text from file.');
+    } finally {
+      setIsExtracting(false);
     }
   }
 
-  function handleRunAnalysis() {
+  async function handleRunAnalysis() {
+    const textToAnalyze = uploadText.trim();
+    if (!textToAnalyze) {
+      setUploadError('Please paste or upload contract text to analyze. Froggo never analyzes empty input.');
+      return;
+    }
+
     setIsAnalyzing(true);
-    setTimeout(() => {
-      if (uploadText.trim() || uploadFilename) {
-        const customDoc = buildCustomFileFromText(
-          uploadText,
-          uploadFilename || 'Uploaded Contract',
-          role
-        );
-        setFiles((prev) => {
-          const base = prev.filter((item) => !item.isCustom);
-          return [customDoc, ...base];
-        });
-        setSelectedFileIndex(0);
-      } else {
-        const fallbackIndex = role === 'Tenant' ? 1 : role === 'Student' ? 2 : 0;
-        setSelectedFileIndex(fallbackIndex);
-      }
+    setUploadError('');
+
+    try {
+      const sanitizedText = sanitizeTextForNetwork(textToAnalyze);
+      const customDoc = analyzeContractDocument(
+        sanitizedText,
+        uploadFilename || 'Uploaded Contract',
+        role
+      );
+      await saveContractToStore(customDoc);
+      const newFile = contractDocumentToFroggoFile(customDoc);
+
+      // Persist into state without overwriting prior user uploads
+      setFiles((prev) => [newFile, ...prev]);
+      setSelectedFileIndex(0);
       setActiveClauseIndex(0);
       setIsAnalyzing(false);
       navigateTo('read');
-    }, 450);
+    } catch (err: unknown) {
+      setIsAnalyzing(false);
+      setUploadError(err instanceof Error ? err.message : 'Analysis failed. Please verify the contract text.');
+    }
   }
 
   function handleCopyText(key: string, content: string) {
@@ -584,23 +534,29 @@ export default function App() {
     setTimeout(() => setCopiedKey(null), 2000);
   }
 
-  function handleDownloadNotes() {
-    const blob = new Blob(
-      [
-        `${currentFile.title} (${currentFile.type})\nRole Lens: ${role}\nGenerated by Froggo — Educational Summary (Not Legal Advice)\n\nINDIAN STATUTORY CHECKS:\n- Section 27: ${currentFile.indiaStatutoryChecks.sec27Status}\n- MSME 45-Day Rule: ${currentFile.indiaStatutoryChecks.msme45DayStatus}\n- TDS Sec 194J: ${currentFile.indiaStatutoryChecks.tds194JStatus}\n\nPLAIN-ENGLISH SUMMARY:\n${currentFile.plain
-          .map((p, i) => `${i + 1}. ${p}`)
-          .join('\n\n')}\n\nQUESTIONS TO ASK BEFORE SIGNING:\n${currentFile.questions
-          .map((q, i) => `${i + 1}. ${q}`)
-          .join('\n')}\n\nMISSING CLAUSES TO REQUEST:\n${currentFile.missing.join('\n')}`
-      ],
-      { type: 'text/plain' }
+  function handleExportPdf() {
+    exportContractPdf(currentFile, role);
+  }
+
+  async function handleRenameContract(id: string, currentTitle: string) {
+    const newTitle = window.prompt('Enter new title for this contract:', currentTitle);
+    if (!newTitle || !newTitle.trim() || newTitle === currentTitle) return;
+    await renameContractInStore(id, newTitle.trim());
+    setFiles((prev) =>
+      prev.map((f) => (f.id === id ? { ...f, title: newTitle.trim() } : f))
     );
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `froggo-summary-${currentFile.id.toLowerCase()}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
+  }
+
+  async function handleDeleteContract(id: string, title: string) {
+    const confirmed = window.confirm(`Are you sure you want to delete "${title}"?`);
+    if (!confirmed) return;
+    await deleteContractFromStore(id);
+    setFiles((prev) => {
+      const next = prev.filter((f) => f.id !== id);
+      return next.length > 0 ? next : INITIAL_FILES;
+    });
+    setSelectedFileIndex(0);
+    setActiveClauseIndex(0);
   }
 
   function replaceJargonInDraft(jargonWord: string) {
@@ -610,28 +566,27 @@ export default function App() {
     setDraft((prev) => prev.replace(regex, rule.replacement));
   }
 
-  function previewCreatorDraftInReadingRoom() {
-    const customFromDraft = buildCustomFileFromText(draft, draftTitle, role);
+  async function previewCreatorDraftInReadingRoom() {
+    const sanitizedDraft = sanitizeTextForNetwork(draft);
+    const customDoc = analyzeContractDocument(sanitizedDraft, draftTitle, role);
+    customDoc.title = draftTitle;
+    await saveContractToStore(customDoc);
+    const customFromDraft = contractDocumentToFroggoFile(customDoc);
     customFromDraft.type = 'Creator Working Draft';
-    setFiles((prev) => {
-      const base = prev.filter((item) => !item.isCustom);
-      return [customFromDraft, ...base];
-    });
+    setFiles((prev) => [customFromDraft, ...prev]);
     setSelectedFileIndex(0);
     setActiveClauseIndex(0);
     navigateTo('read');
   }
 
-  function handleLoadTemplateIntoReadingRoom(title: string, clauses: string[]) {
-    const tplFile = buildCustomFileFromText(clauses.join('\n\n'), title, role);
-    tplFile.title = title;
+  async function handleLoadTemplateIntoReadingRoom(title: string, clauses: string[]) {
+    const sanitizedClauses = clauses.map(sanitizeTextForNetwork);
+    const customDoc = analyzeContractDocument(sanitizedClauses.join('\n\n'), title, role);
+    customDoc.title = title;
+    await saveContractToStore(customDoc);
+    const tplFile = contractDocumentToFroggoFile(customDoc);
     tplFile.type = 'India Legal Template';
-    tplFile.score = 18;
-    tplFile.clauseSeverities = tplFile.clauses.map(() => 'safe');
-    setFiles((prev) => {
-      const base = prev.filter((item) => !item.isCustom);
-      return [tplFile, ...base];
-    });
+    setFiles((prev) => [tplFile, ...prev]);
     setSelectedFileIndex(0);
     setActiveClauseIndex(0);
     navigateTo('read');
@@ -670,19 +625,23 @@ export default function App() {
       {/* =====================================================================
           TOP NAVIGATION BAR (Clean Light Theme + Standard Dark Mode Toggle)
          ===================================================================== */}
-      {sidebarOpen && <button className="sidebar-scrim" aria-label="Close navigation" onClick={()=>setSidebarOpen(false)}/>}
-      <aside id="workspace-navigation" className={'emerald-sidebar '+(sidebarOpen?'sidebar-open':'')}>
-        <button className="sidebar-brand" aria-label="Froggo home" onClick={()=>navigateTo('home')}><FroggoLogo size={42}/><span>froggo<span>®</span></span></button>
-        <div className="workspace-picker"><span className="workspace-avatar">F</span><div><strong>Personal workspace</strong><span>Contract review</span></div><Check size={13}/></div>
-        <div className="sidebar-section-label">WORKSPACE</div>
-        <nav aria-label="Main navigation" className="sidebar-nav">
-          {([{id:'home',label:'Overview',icon:Home},{id:'read',label:'Reading room',icon:FileText},{id:'create',label:'Creator desk',icon:Wand2},{id:'shield',label:'Templates',icon:LayoutGrid}] as const).map(item=><button key={item.id} className={page===item.id?'active':''} aria-current={page===item.id?'page':undefined} onClick={()=>navigateTo(item.id)}><item.icon size={17}/><span>{item.label}</span>{page===item.id&&<span className="sidebar-active-dot"/>}</button>)}
-          <button onClick={()=>{setAiAssistantMode('chat');setAiAssistantOpen(true);setSidebarOpen(false)}}><MessageSquareText size={17}/><span>Assistant</span><span className="sidebar-ai-label">AI</span></button>
-        </nav>
-        <div className="sidebar-lower"><div className="sidebar-glass-note"><div className="sidebar-note-symbol"><ShieldCheck size={21}/></div><strong>A little more clarity.</strong><p>Keep your documents and the details that matter together.</p><button onClick={()=>navigateTo('upload')}>Add a document <Plus size={15}/></button></div><button className="sidebar-privacy" onClick={()=>{setShieldSubTab('privacy');navigateTo('shield')}}><Lock size={15}/> Privacy & data <ArrowUpRight size={13}/></button><span className="sidebar-copyright">FROGGO / YOUR CONTRACT WORKSPACE</span></div>
-      </aside>
+      <Sidebar
+        page={page}
+        sidebarOpen={sidebarOpen}
+        setSidebarOpen={setSidebarOpen}
+        navigateTo={navigateTo}
+        setAiAssistantMode={setAiAssistantMode}
+        setAiAssistantOpen={setAiAssistantOpen}
+        setShieldSubTab={setShieldSubTab}
+      />
       <div className="emerald-surface">
-      <header className="workspace-topbar"><div className="workspace-breadcrumb"><button className="mobile-nav-toggle" onClick={()=>setSidebarOpen(!sidebarOpen)} aria-expanded={sidebarOpen} aria-controls="workspace-navigation" aria-label={sidebarOpen ? "Close navigation menu" : "Open navigation"}><PanelLeftOpen size={19}/></button><span>Workspace</span><ChevronRight size={12}/><strong>{{home:'Overview',read:'Reading room',create:'Creator desk',shield:'Templates',upload:'New document'}[page]}</strong></div><div className="workspace-top-actions"><span className="workspace-mode"><span/> Personal space</span><button className="theme-switch" onClick={()=>setDarkMode(v=>!v)} aria-label={darkMode?'Switch to light theme':'Switch to dark theme'} aria-pressed={darkMode}>{darkMode?<Sun size={18}/>:<Moon size={18}/>}</button><span className="topbar-avatar" aria-label="Personal workspace">F</span></div></header>
+        <Topbar
+          page={page}
+          sidebarOpen={sidebarOpen}
+          setSidebarOpen={setSidebarOpen}
+          darkMode={darkMode}
+          setDarkMode={setDarkMode}
+        />
 
       <main className="flex-1">
         <AnimatePresence mode="wait">
@@ -694,569 +653,60 @@ export default function App() {
             transition={{ duration: 0.18 }}
           >
             {page === 'home' && (
-              <div className="emerald-home">
-                <div className="dashboard-title"><div><span className="dashboard-eyebrow">YOUR WORKSPACE</span><h1>Everything, in clearer terms.</h1><p>A focused space to understand, review, and refine your contracts.</p></div><button className="emerald-primary" onClick={()=>navigateTo('upload')}><Plus size={16}/> New document</button></div>
-                <div className="dashboard-tabs"><div role="tablist" aria-label="Workspace view"><button role="tab" aria-selected={homeTab==='documents'} onClick={()=>setHomeTab('documents')} className={homeTab==='documents'?'active':''}><FileText size={16}/> Documents <span>{files.length.toString().padStart(2,'0')}</span></button><button role="tab" aria-selected={homeTab==='workflow'} onClick={()=>setHomeTab('workflow')} className={homeTab==='workflow'?'active':''}><ShieldCheck size={16}/> Review workflow</button></div><span className="dashboard-tabs-note">Built around your next decision</span></div>
-                <AnimatePresence mode="wait"><motion.div key={homeTab} initial={{opacity:0,y:12}} animate={{opacity:1,y:0}} exit={{opacity:0,y:-8}} transition={{duration:.22}}>
-                {homeTab==='documents'?<>
-                <div className="quick-actions">{[
-                  {label:'Upload a contract',description:'Start a new review',icon:Upload,action:()=>navigateTo('upload')},
-                  {label:'Open reading room',description:'Understand the fine print',icon:FileText,action:()=>openContractInReadingRoom(selectedFileIndex)},
-                  {label:'Create a draft',description:'Make your terms clearer',icon:Wand2,action:()=>navigateTo('create')},
-                  {label:'Compare documents',description:'See what changed',icon:Copy,action:()=>{setShieldSubTab('compare');navigateTo('shield')}},
-                  {label:'Browse templates',description:'A considered starting point',icon:LayoutGrid,action:()=>{setShieldSubTab('templates');navigateTo('shield')}},
-                  {label:'Ask your assistant',description:'Talk through a clause',icon:MessageSquareText,action:()=>{setAiAssistantMode('chat');setAiAssistantOpen(true)}}
-                ].map(action=><button className="quick-action" key={action.label} onClick={action.action}><span className="action-icon"><action.icon size={17}/></span><ArrowUpRight className="action-arrow" size={15}/><strong>{action.label}</strong><span>{action.description}</span></button>)}</div>
-                <section className="document-collection"><div className="collection-heading"><h2>Your documents <span>{files.length}</span></h2><div className="collection-controls"><button aria-label="Scroll documents left" onClick={()=>documentRail.current?.scrollBy({left:-300,behavior:'smooth'})}><ChevronLeft size={16}/></button><button aria-label="Scroll documents right" onClick={()=>documentRail.current?.scrollBy({left:300,behavior:'smooth'})}><ChevronRight size={16}/></button><span className="collection-rule"/><button className="collection-see-all" onClick={()=>document.getElementById('document-table')?.scrollIntoView({behavior:'smooth'})}>View all <ArrowUpRight size={13}/></button></div></div>
-                <div className="document-rail" ref={documentRail}>{files.map((file,index)=><button className="collection-card" key={file.id} onClick={()=>openContractInReadingRoom(index)}><div className={'contract-cover cover-'+index%3}><span className="cover-label">{file.isCustom?'YOUR DOCUMENT':'SAMPLE AGREEMENT'}</span><div className="cover-ribbons" aria-hidden="true">{[0,1,2,3,4].map(n=><i key={n}/>)}</div><span className="cover-monogram">{file.type.includes('Housing')?'RE':file.type.includes('Subscription')?'TC':'MS'}</span><div className="cover-footer"><span>{file.clauses.length} clauses</span><FileCheck size={23}/></div></div><div className="contract-card-info"><div><strong>{file.isCustom?file.title:index===0?'Freelance agreement':index===1?'Residential lease':'Subscription terms'}</strong><span>{file.type}</span></div><ChevronRight size={17}/></div></button>)}</div></section>
-                <section className="document-table-section" id="document-table"><div className="table-heading"><h2>All documents</h2><label className="document-search"><Search size={15}/><input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Find a document" aria-label="Find a document"/>{search&&<button aria-label="Clear search" onClick={()=>setSearch('')}><X size={13}/></button>}</label></div><div className="document-table"><div className="table-labels"><span>DOCUMENT</span><span>TYPE</span><span>CLAUSES</span><span/></div>{files.map((file,index)=>({file,index})).filter(({file})=>(file.title+' '+file.type).toLowerCase().includes(search.toLowerCase())).map(({file,index})=><button className="document-row" key={file.id} onClick={()=>openContractInReadingRoom(index)}><span className="row-title"><span className="row-icon"><FileText size={18}/></span><span><strong>{file.isCustom?file.title:index===0?'Freelance agreement':index===1?'Residential lease':'Subscription terms'}</strong><small>{file.isCustom?'Uploaded document':'Sample document'}</small></span></span><span className="row-type">{file.type}</span><span className="row-clause-count">{file.clauses.length.toString().padStart(2,'0')}</span><ArrowUpRight size={16}/></button>)}{!files.some(file=>(file.title+' '+file.type).toLowerCase().includes(search.toLowerCase()))&&<div className="search-empty"><Search size={24}/><strong>No matching documents</strong><p>Try another name or document type.</p><button onClick={()=>setSearch('')}>Clear search</button></div>}</div></section>
-                </>:<section className="workflow-board"><div className="workflow-title"><div><span>YOUR REVIEW, STEP BY STEP</span><h2>From document<br/>to decision.</h2></div><span className="workflow-count">Three steps.<br/><strong>One clearer view.</strong></span></div><div className="workflow-columns">{[
-                  {name:'01 / Prepare',items:['Add your document','Choose your perspective','Check the source text'],icon:Upload,action:()=>navigateTo('upload')},
-                  {name:'02 / Understand',items:['Read the summary','Inspect risk flags','Review missing clauses'],icon:FileCheck,action:()=>openContractInReadingRoom(0)},
-                  {name:'03 / Refine',items:['Prepare your questions','Refine the wording','Review your draft'],icon:Wand2,action:()=>navigateTo('create')}
-                ].map(step=><div className="workflow-column" key={step.name}><h3>{step.name}</h3>{step.items.map((item,i)=><button key={item} style={{'--step':i} as React.CSSProperties} onClick={step.action}><span><step.icon size={17}/></span>{item}<ArrowUpRight size={13}/></button>)}</div>)}</div></section>}
-                </motion.div></AnimatePresence>
-              </div>
+              <HomeView
+                files={files}
+                homeTab={homeTab}
+                setHomeTab={setHomeTab}
+                navigateTo={navigateTo}
+                openContractInReadingRoom={openContractInReadingRoom}
+                selectedFileIndex={selectedFileIndex}
+                setShieldSubTab={setShieldSubTab}
+                setAiAssistantMode={setAiAssistantMode}
+                setAiAssistantOpen={setAiAssistantOpen}
+                search={search}
+                setSearch={setSearch}
+                handleRenameContract={handleRenameContract}
+                handleDeleteContract={handleDeleteContract}
+                documentRail={documentRail}
+              />
             )}
 
             {page === 'upload' && (
-              <section className="py-10 sm:py-14">
-                <div className="max-w-3xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
-                  <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 shadow-sm p-6 sm:p-8 space-y-6">
-                    <div>
-                      <span className="text-xs font-semibold uppercase tracking-wider text-[#0F766E] dark:text-teal-400">
-                        New Document Analysis
-                      </span>
-                      <h1 className="font-heading text-2xl sm:text-3xl font-bold text-[#111827] dark:text-white mt-1">
-                        Add your document
-                      </h1>
-                      <p className="text-base text-gray-600 dark:text-slate-300 mt-2">
-                        Froggo analyzes your agreement locally in your browser, automatically masks
-                        PAN and Aadhaar numbers, and flags hidden risks and missing clauses.
-                      </p>
-                    </div>
-
-                    {/* Role Selector */}
-                    <div className="p-4 rounded-xl bg-[#F9FAFB] dark:bg-slate-800 border border-gray-200 dark:border-slate-700 flex flex-wrap items-center justify-between gap-3">
-                      <div className="flex items-center gap-2 text-sm font-semibold text-[#111827] dark:text-white">
-                        <UserCheck size={18} className="text-[#0F766E] dark:text-teal-400" />
-                        <span>Your perspective</span>
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        {(['Freelancer', 'Tenant', 'Student'] as const).map((r) => (
-                          <button
-                            key={r}
-                            onClick={() => setRole(r)}
-                            className={`px-4 py-2 rounded-lg text-sm font-semibold border transition-colors ${
-                              role === r
-                                ? 'bg-[#0F766E] text-white border-[#0F766E]'
-                                : 'bg-white dark:bg-slate-900 text-gray-700 dark:text-slate-300 border-gray-300 dark:border-slate-700 hover:bg-gray-100'
-                            }`}
-                          >
-                            {r}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-
-                    {/* Drag and Drop Zone */}
-                    <div
-                      onDragOver={(e) => e.preventDefault()}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        handleFileUpload(e.dataTransfer.files[0]);
-                      }}
-                      onClick={() => fileInputRef.current?.click()}
-                      className="border-2 border-dashed border-gray-300 dark:border-slate-700 hover:border-[#0F766E] rounded-xl p-8 text-center bg-[#F9FAFB] dark:bg-slate-950 hover:bg-teal-50/30 cursor-pointer transition-colors"
-                    >
-                      <input
-                        ref={fileInputRef}
-                        type="file"
-                        accept=".txt,.pdf,.docx,.md"
-                        hidden
-                        onChange={(e) => handleFileUpload(e.target.files?.[0])}
-                      />
-                      <div className="w-12 h-12 rounded-full bg-teal-50 dark:bg-teal-950 text-[#0F766E] dark:text-teal-400 flex items-center justify-center mx-auto mb-3">
-                        <Upload size={22} />
-                      </div>
-                      <p className="text-base font-semibold text-[#111827] dark:text-white">
-                        {uploadFilename || 'Drop your contract file here, or click to browse'}
-                      </p>
-                      <p className="text-sm text-gray-500 dark:text-slate-400 mt-1">
-                        Supports PDF, DOCX, TXT, and MD up to 10 MB
-                      </p>
-                    </div>
-
-                    {/* Paste Textarea */}
-                    <div>
-                      <label className="block text-sm font-semibold text-[#111827] dark:text-white mb-2">
-                        Or paste the contract text / specific clauses below:
-                      </label>
-                      <textarea
-                        rows={7}
-                        value={uploadText}
-                        onChange={(e) => setUploadText(e.target.value)}
-                        placeholder="Paste the clauses you want to understand (e.g., payment terms, IP ownership, non-compete, lease deposit deductions)..."
-                        className="w-full p-4 rounded-xl bg-white dark:bg-slate-950 border border-gray-300 dark:border-slate-700 text-base text-[#111827] dark:text-white leading-relaxed placeholder:text-gray-400"
-                      />
-                    </div>
-
-                    {uploadError && (
-                      <div
-                        role="alert"
-                        className="p-3.5 rounded-lg bg-red-50 dark:bg-red-950/60 border border-red-200 dark:border-red-800 text-sm text-red-800 dark:text-red-300 font-medium"
-                      >
-                        {uploadError}
-                      </div>
-                    )}
-
-                    <div className="flex flex-wrap items-center justify-between gap-4 pt-2">
-                      <button
-                        onClick={() => navigateTo('home')}
-                        className="px-4 py-2.5 rounded-lg border border-gray-300 dark:border-slate-700 text-sm font-semibold text-gray-700 dark:text-slate-300 hover:bg-gray-100 dark:hover:bg-slate-800"
-                      >
-                        Cancel
-                      </button>
-
-                      <button
-                        onClick={handleRunAnalysis}
-                        disabled={isAnalyzing}
-                        className="px-6 py-3 rounded-xl bg-[#0F766E] hover:bg-[#115E59] text-white text-base font-semibold flex items-center gap-2 shadow-sm transition-colors"
-                      >
-                        <span>
-                          {isAnalyzing
-                            ? 'Analyzing Clauses...'
-                            : uploadText.trim() || uploadFilename
-                            ? 'Analyze Contract in Reading Room'
-                            : `Open Sample ${role} Contract`}
-                        </span>
-                        <ArrowRight size={18} />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              </section>
+              <UploadView
+                role={role}
+                setRole={setRole}
+                handleFileUpload={handleFileUpload}
+                fileInputRef={fileInputRef}
+                isExtracting={isExtracting}
+                uploadFilename={uploadFilename}
+                uploadText={uploadText}
+                setUploadText={setUploadText}
+                uploadError={uploadError}
+                navigateTo={navigateTo}
+                handleRunAnalysis={handleRunAnalysis}
+                isAnalyzing={isAnalyzing}
+              />
             )}
 
-            {/* ===============================================================
-                DASHBOARD A: THE READING ROOM (3-Column SaaS Layout)
-               =============================================================== */}
             {page === 'read' && (
-              <section className="py-8">
-                <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-6">
-                  {/* Top Action Bar */}
-                  <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-4 sm:p-5 shadow-sm flex flex-wrap items-center justify-between gap-4">
-                    <div>
-                      <div className="flex flex-wrap items-center gap-2 text-xs font-semibold text-[#0F766E] dark:text-teal-400">
-                        <span>{currentFile.id}</span>
-                        <span>·</span>
-                        <span>{currentFile.type}</span>
-                        <span>·</span>
-                        <span>Reading as {role}</span>
-                      </div>
-                      <h1 className="font-heading text-xl sm:text-2xl font-bold text-[#111827] dark:text-white mt-0.5">
-                        {currentFile.title}
-                      </h1>
-                    </div>
-
-                    <div className="flex flex-wrap items-center gap-2.5">
-                      {/* Font Toggle for Legal Text */}
-                      <button
-                        onClick={() => setUseSerifLegalText((prev) => !prev)}
-                        className="px-3 py-2 rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-[#F9FAFB] text-xs font-medium text-gray-700 dark:text-slate-300"
-                      >
-                        Font: {useSerifLegalText ? 'Merriweather Serif' : 'Inter Sans'}
-                      </button>
-
-                      <button
-                        onClick={handleDownloadNotes}
-                        className="px-3.5 py-2 rounded-lg border border-gray-300 dark:border-slate-700 bg-white dark:bg-slate-800 hover:bg-[#F9FAFB] text-sm font-medium text-[#111827] dark:text-white flex items-center gap-2"
-                      >
-                        <Download size={15} />
-                        <span>Export Summary</span>
-                      </button>
-
-                      <button
-                        onClick={() => navigateTo('upload')}
-                        className="px-4 py-2 rounded-lg bg-[#0F766E] hover:bg-[#115E59] text-white text-sm font-semibold flex items-center gap-1.5 shadow-2xs transition-colors"
-                      >
-                        <Plus size={16} />
-                        <span>Upload Contract</span>
-                      </button>
-                    </div>
-                  </div>
-
-                  {/* 3-Column Reading Room Workspace */}
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-                    {/* LEFT SIDEBAR (3/12): Workspace Documents & Role Switcher */}
-                    <aside className="lg:col-span-3 space-y-5">
-                      {/* Workspace Document List */}
-                      <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-4 shadow-sm space-y-3">
-                        <div className="flex items-center justify-between">
-                          <h2 className="font-heading text-sm font-bold text-[#111827] dark:text-white uppercase tracking-wider">
-                            Workspace Files
-                          </h2>
-                          <span className="text-xs font-medium text-gray-500 dark:text-slate-400">
-                            {files.length} docs
-                          </span>
-                        </div>
-
-                        <div className="space-y-2">
-                          {files.map((file, idx) => {
-                            const isSelected = selectedFileIndex === idx;
-                            return (
-                              <button
-                                key={file.id}
-                                onClick={() => {
-                                  setSelectedFileIndex(idx);
-                                  setActiveClauseIndex(0);
-                                }}
-                                className={`w-full text-left p-3 rounded-lg border transition-colors block ${
-                                  isSelected
-                                    ? 'bg-teal-50/80 dark:bg-teal-950/50 border-[#0F766E] text-[#111827] dark:text-white'
-                                    : 'bg-white dark:bg-slate-900 border-gray-200 dark:border-slate-800 hover:bg-[#F9FAFB] dark:hover:bg-slate-800 text-gray-700 dark:text-slate-300'
-                                }`}
-                              >
-                                <div className="flex items-center justify-between text-xs font-medium mb-1">
-                                  <span
-                                    className={
-                                      isSelected
-                                        ? 'text-[#0F766E] dark:text-teal-300 font-semibold'
-                                        : 'text-gray-500 dark:text-slate-400'
-                                    }
-                                  >
-                                    {file.type}
-                                  </span>
-                                  <span className="font-semibold text-gray-700 dark:text-slate-300">
-                                    Score: {file.score}
-                                  </span>
-                                </div>
-                                <div className="font-heading text-sm font-semibold leading-snug">
-                                  {file.title}
-                                </div>
-                              </button>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      {/* Role Lens Switcher Card */}
-                      <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-4 shadow-sm space-y-3">
-                        <h2 className="font-heading text-sm font-bold text-[#111827] dark:text-white uppercase tracking-wider">
-                          Role Perspective
-                        </h2>
-                        <p className="text-xs text-gray-600 dark:text-slate-400 leading-relaxed">
-                          Switch roles to see how this contract specifically affects your rights and
-                          finances.
-                        </p>
-                        <div className="grid grid-cols-3 gap-1.5">
-                          {(['Freelancer', 'Tenant', 'Student'] as const).map((r) => (
-                            <button
-                              key={r}
-                              onClick={() => setRole(r)}
-                              className={`py-2 px-2 rounded-lg text-xs font-semibold border transition-colors text-center ${
-                                role === r
-                                  ? 'bg-[#0F766E] text-white border-[#0F766E]'
-                                  : 'bg-[#F9FAFB] dark:bg-slate-800 text-gray-700 dark:text-slate-300 border-gray-200 dark:border-slate-700 hover:bg-gray-100'
-                              }`}
-                            >
-                              {r}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-
-                      {/* Indian Statutory Checks Card */}
-                      <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-4 shadow-sm space-y-3">
-                        <div className="flex items-center gap-2">
-                          <Scale size={16} className="text-[#0F766E] dark:text-teal-400" />
-                          <h2 className="font-heading text-sm font-bold text-[#111827] dark:text-white uppercase tracking-wider">
-                            Indian Law Audit
-                          </h2>
-                        </div>
-
-                        <div className="space-y-2.5 text-xs">
-                          <div className="p-2.5 rounded-lg bg-[#F9FAFB] dark:bg-slate-800 border border-gray-200 dark:border-slate-700">
-                            <span className="font-semibold text-gray-700 dark:text-slate-200 block">
-                              Section 27 (Non-Compete):
-                            </span>
-                            <span className="text-gray-600 dark:text-slate-400 mt-0.5 block">
-                              {currentFile.indiaStatutoryChecks.sec27Status}
-                            </span>
-                          </div>
-                          <div className="p-2.5 rounded-lg bg-[#F9FAFB] dark:bg-slate-800 border border-gray-200 dark:border-slate-700">
-                            <span className="font-semibold text-gray-700 dark:text-slate-200 block">
-                              MSME 45-Day Rule (Sec 15):
-                            </span>
-                            <span className="text-gray-600 dark:text-slate-400 mt-0.5 block">
-                              {currentFile.indiaStatutoryChecks.msme45DayStatus}
-                            </span>
-                          </div>
-                          <div className="p-2.5 rounded-lg bg-[#F9FAFB] dark:bg-slate-800 border border-gray-200 dark:border-slate-700">
-                            <span className="font-semibold text-gray-700 dark:text-slate-200 block">
-                              Section 194J TDS Check:
-                            </span>
-                            <span className="text-gray-600 dark:text-slate-400 mt-0.5 block">
-                              {currentFile.indiaStatutoryChecks.tds194JStatus}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-                    </aside>
-
-                    {/* MIDDLE COLUMN (5/12): Clean White (#FFFFFF) Contract Text Viewer */}
-                    <div className="lg:col-span-5 bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 shadow-sm p-6 sm:p-8 space-y-6">
-                      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-gray-200 dark:border-slate-800 pb-4">
-                        <div>
-                          <span className="text-xs font-semibold text-gray-500 dark:text-slate-400 uppercase tracking-wider">
-                            Contract Text Viewer
-                          </span>
-                          <h2 className="font-heading text-lg font-bold text-[#111827] dark:text-white">
-                            Original Clauses (Click any clause to inspect)
-                          </h2>
-                        </div>
-                        <div className="flex items-center gap-2 text-xs">
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-red-50 dark:bg-red-950/60 text-red-800 dark:text-red-300 border border-red-200 dark:border-red-800">
-                            High Risk
-                          </span>
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-amber-50 dark:bg-amber-950/60 text-amber-900 dark:text-amber-300 border border-amber-200 dark:border-amber-800">
-                            Moderate
-                          </span>
-                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-emerald-50 dark:bg-emerald-950/60 text-emerald-800 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800">
-                            Safe
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="space-y-4">
-                        {currentFile.clauses.map((clauseText, idx) => {
-                          const isSelected = activeClauseIndex === idx;
-                          const severity = currentFile.clauseSeverities?.[idx] || 'medium';
-
-                          const severityStyles =
-                            severity === 'high'
-                              ? 'bg-red-50/70 dark:bg-red-950/30 border-l-4 border-l-red-500 border-red-200 dark:border-red-900 hover:bg-red-50'
-                              : severity === 'medium'
-                              ? 'bg-amber-50/70 dark:bg-amber-950/30 border-l-4 border-l-amber-500 border-amber-200 dark:border-amber-900 hover:bg-amber-50'
-                              : 'bg-emerald-50/60 dark:bg-emerald-950/30 border-l-4 border-l-emerald-600 border-emerald-200 dark:border-emerald-900 hover:bg-emerald-50';
-
-                          const badgeStyles =
-                            severity === 'high'
-                              ? 'bg-red-100 dark:bg-red-900/70 text-red-900 dark:text-red-200'
-                              : severity === 'medium'
-                              ? 'bg-amber-100 dark:bg-amber-900/70 text-amber-900 dark:text-amber-200'
-                              : 'bg-emerald-100 dark:bg-emerald-900/70 text-emerald-900 dark:text-emerald-200';
-
-                          return (
-                            <button
-                              key={idx}
-                              onClick={() => setActiveClauseIndex(idx)}
-                              className={`w-full text-left p-5 rounded-xl border transition-all block ${severityStyles} ${
-                                isSelected ? 'ring-2 ring-[#0F766E] shadow-sm' : ''
-                              }`}
-                            >
-                              <div className="flex items-center justify-between gap-2 mb-2">
-                                <span className="text-xs font-bold text-[#111827] dark:text-white uppercase tracking-wide">
-                                  Clause 0{idx + 1} · {currentFile.risks[idx]}
-                                </span>
-                                <span
-                                  className={`text-[11px] font-semibold px-2 py-0.5 rounded uppercase ${badgeStyles}`}
-                                >
-                                  {severity}
-                                </span>
-                              </div>
-                              <p
-                                className={`${
-                                  useSerifLegalText ? 'font-legal-serif' : 'font-legal'
-                                } text-base text-[#111827] dark:text-slate-100 leading-relaxed`}
-                              >
-                                {clauseText}
-                              </p>
-                            </button>
-                          );
-                        })}
-                      </div>
-                    </div>
-
-                    {/* RIGHT COLUMN (4/12): Scrollable Insights Panel */}
-                    <aside className="lg:col-span-4 space-y-5">
-                      {/* Card 1: Overall Risk Score */}
-                      {(() => {
-                        const badge = getRiskBadgeStyle(currentFile.score);
-                        return (
-                          <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-5 shadow-sm space-y-3">
-                            <div className="flex items-center justify-between">
-                              <span className="text-xs font-bold uppercase tracking-wider text-gray-500 dark:text-slate-400">
-                                Contract Risk Score
-                              </span>
-                              <span
-                                className={`text-xs font-semibold px-2.5 py-1 rounded-md border ${badge.bg}`}
-                              >
-                                {badge.label}
-                              </span>
-                            </div>
-
-                            <div className="flex items-baseline justify-between">
-                              <div className="font-heading text-3xl font-bold text-[#111827] dark:text-white">
-                                {currentFile.score}
-                                <span className="text-base font-normal text-gray-500 dark:text-slate-400">
-                                  /100
-                                </span>
-                              </div>
-                              <span className="text-xs text-gray-600 dark:text-slate-400">
-                                Lower score = safer terms
-                              </span>
-                            </div>
-
-                            <div className="w-full h-2.5 bg-gray-100 dark:bg-slate-800 rounded-full overflow-hidden">
-                              <div
-                                className={`h-full rounded-full transition-all ${badge.bar}`}
-                                style={{ width: `${currentFile.score}%` }}
-                              />
-                            </div>
-                          </div>
-                        );
-                      })()}
-
-                      {/* Card 2: Plain-English Summary of Selected Clause */}
-                      <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-6 shadow-sm space-y-4">
-                        <div className="flex items-center justify-between border-b border-gray-100 dark:border-slate-800 pb-3">
-                          <div className="flex items-center gap-2">
-                            <Sparkles size={18} className="text-[#0F766E] dark:text-teal-400" />
-                            <h3 className="font-heading text-base font-bold text-[#111827] dark:text-white">
-                              Plain-English Summary
-                            </h3>
-                          </div>
-                          <span className="text-xs font-semibold text-[#0F766E] dark:text-teal-300 bg-teal-50 dark:bg-teal-950/60 px-2.5 py-0.5 rounded">
-                            Clause 0{activeClauseIndex + 1}
-                          </span>
-                        </div>
-
-                        <div>
-                          <div className="text-xs font-semibold text-gray-500 dark:text-slate-400 uppercase mb-1">
-                            What this clause actually means:
-                          </div>
-                          <p className="text-base text-[#111827] dark:text-slate-100 leading-relaxed">
-                            {currentFile.plain[activeClauseIndex]}
-                          </p>
-                        </div>
-
-                        <div className="p-4 rounded-xl bg-[#F9FAFB] dark:bg-slate-800/80 border border-gray-200 dark:border-slate-700 space-y-1.5">
-                          <div className="text-xs font-bold text-[#0F766E] dark:text-teal-400 uppercase">
-                            Why it matters to a {role}:
-                          </div>
-                          <p className="text-sm text-gray-700 dark:text-slate-300 leading-relaxed">
-                            {currentFile.roleImpact?.[role]?.[activeClauseIndex] ||
-                              currentFile.plain[activeClauseIndex]}
-                          </p>
-                        </div>
-                      </div>
-
-                      {/* Card 3: Suggested Questions to Ask Before Signing */}
-                      <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-6 shadow-sm space-y-4">
-                        <div className="flex items-center gap-2 border-b border-gray-100 dark:border-slate-800 pb-3">
-                          <HelpCircle size={18} className="text-[#1D4ED8] dark:text-blue-400" />
-                          <h3 className="font-heading text-base font-bold text-[#111827] dark:text-white">
-                            Questions to Ask Before Signing
-                          </h3>
-                        </div>
-
-                        <div className="space-y-3">
-                          {currentFile.questions.map((q, idx) => {
-                            const isCurrent = idx === activeClauseIndex;
-                            return (
-                              <div
-                                key={idx}
-                                className={`p-3.5 rounded-xl border transition-colors ${
-                                  isCurrent
-                                    ? 'bg-blue-50/70 dark:bg-blue-950/40 border-blue-200 dark:border-blue-800'
-                                    : 'bg-[#F9FAFB] dark:bg-slate-800/70 border-gray-200 dark:border-slate-700'
-                                }`}
-                              >
-                                <div className="flex items-start justify-between gap-2">
-                                  <p className="text-sm font-medium text-[#111827] dark:text-slate-100 leading-relaxed">
-                                    <span className="font-bold text-[#1D4ED8] dark:text-blue-400 mr-1.5">
-                                      Q{idx + 1}.
-                                    </span>
-                                    “{q}”
-                                  </p>
-                                  <button
-                                    onClick={() => handleCopyText(`q-${idx}`, q)}
-                                    className="px-2.5 py-1 rounded-md bg-white dark:bg-slate-900 border border-gray-300 dark:border-slate-700 hover:bg-gray-100 text-xs font-medium text-gray-700 dark:text-slate-300 shrink-0 flex items-center gap-1"
-                                  >
-                                    {copiedKey === `q-${idx}` ? (
-                                      <>
-                                        <Check size={12} className="text-emerald-700" />
-                                        <span>Copied</span>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Copy size={12} />
-                                        <span>Copy</span>
-                                      </>
-                                    )}
-                                  </button>
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      {/* Card 4: Missing Protective Clauses */}
-                      <div className="bg-white dark:bg-slate-900 rounded-xl border border-gray-200 dark:border-slate-800 p-6 shadow-sm space-y-4">
-                        <div className="flex items-center gap-2 border-b border-gray-100 dark:border-slate-800 pb-3">
-                          <ShieldAlert size={18} className="text-amber-600 dark:text-amber-400" />
-                          <h3 className="font-heading text-base font-bold text-[#111827] dark:text-white">
-                            Missing Clauses to Request
-                          </h3>
-                        </div>
-
-                        <div className="space-y-3">
-                          {currentFile.missing.map((m) => (
-                            <div
-                              key={m}
-                              className="p-4 rounded-xl bg-amber-50/50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800 space-y-2"
-                            >
-                              <div className="flex items-center justify-between gap-2">
-                                <span className="text-sm font-semibold text-[#111827] dark:text-white">
-                                  {m}
-                                </span>
-                                {currentFile.missingWording?.[m] && (
-                                  <button
-                                    onClick={() =>
-                                      handleCopyText(`gap-${m}`, currentFile.missingWording[m])
-                                    }
-                                    className="px-2.5 py-1 rounded-md bg-white dark:bg-slate-900 border border-amber-300 dark:border-amber-700 hover:bg-amber-100 text-xs font-semibold text-amber-900 dark:text-amber-300 shrink-0 flex items-center gap-1"
-                                  >
-                                    {copiedKey === `gap-${m}` ? (
-                                      <>
-                                        <Check size={12} />
-                                        <span>Copied</span>
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Copy size={12} />
-                                        <span>Copy Clause</span>
-                                      </>
-                                    )}
-                                  </button>
-                                )}
-                              </div>
-                              {currentFile.missingWording?.[m] && (
-                                <p className="text-xs text-gray-700 dark:text-slate-300 leading-relaxed bg-white dark:bg-slate-900 p-3 rounded-lg border border-amber-100 dark:border-slate-800">
-                                  <strong>Suggested Wording:</strong> “
-                                  {currentFile.missingWording[m]}”
-                                </p>
-                              )}
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    </aside>
-                  </div>
-                </div>
-              </section>
+              <ReadingRoomView
+                currentFile={currentFile}
+                role={role}
+                setRole={setRole}
+                useSerifLegalText={useSerifLegalText}
+                setUseSerifLegalText={setUseSerifLegalText}
+                handleExportPdf={handleExportPdf}
+                navigateTo={navigateTo}
+                files={files}
+                selectedFileIndex={selectedFileIndex}
+                setSelectedFileIndex={setSelectedFileIndex}
+                activeClauseIndex={activeClauseIndex}
+                setActiveClauseIndex={setActiveClauseIndex}
+                handleRenameContract={handleRenameContract}
+                handleDeleteContract={handleDeleteContract}
+                clauseRefs={clauseRefs}
+                scrollToClause={scrollToClause}
+              />
             )}
 
             {/* ===============================================================
@@ -1528,7 +978,21 @@ export default function App() {
         }}
         role={role}
         contractTitle={currentFile.title}
-        contractClauses={currentFile.clauses}
+        contractClauses={currentFile.clauses.map((text, idx) => ({
+          id: `c-${String(idx + 1).padStart(3, '0')}`,
+          text,
+        }))}
+        onSelectClause={(clauseId) => {
+          const matchIdx = currentFile.clauses.findIndex(
+            (_, idx) => `c-${String(idx + 1).padStart(3, '0')}` === clauseId.toLowerCase()
+          );
+          if (matchIdx !== -1) {
+            if (page !== 'read') {
+              navigateTo('read');
+            }
+            scrollToClause(matchIdx);
+          }
+        }}
       />
     </div>
   );

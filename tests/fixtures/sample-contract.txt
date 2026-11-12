@@ -1,0 +1,4 @@
+1. Payment Terms: Payment shall be remitted within 60 days of invoice approval. The Company may withhold payment in its sole and absolute discretion pending satisfactory completion.
+2. Intellectual Property: All work product and pre-existing utilities shall become the exclusive property of the Company in perpetuity upon creation.
+3. Post-Termination Non-Compete: Contractor shall not work for or engage with any competing business for 18 months following termination.
+4. Confidentiality: Both parties agree to maintain mutual confidentiality of all non-public technical specifications and commercial terms.

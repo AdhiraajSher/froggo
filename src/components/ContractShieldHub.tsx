@@ -990,12 +990,36 @@ For ${partyA}                        For ${partyB}`;
               </div>
 
               <p className="text-sm text-gray-600 dark:text-slate-300 leading-relaxed">
-                Before any contract clause is analyzed, Froggo’s browser-side sanitizer
-                automatically detects and masks Indian <strong>PAN numbers</strong>,{' '}
-                <strong>Aadhaar numbers</strong>, <strong>GSTIN</strong>,{' '}
-                <strong>Bank Account numbers</strong>, <strong>Phone numbers</strong>, and{' '}
-                <strong>Emails</strong> so sensitive identifiers stay protected.
+                Before any contract text or chat query leaves your browser, Froggo’s client-side PII sanitizer
+                automatically redacts personal identity and financial credentials under the Digital Personal Data
+                Protection Act (DPDP Act, 2023).
               </p>
+
+              <div className="p-4 rounded-xl bg-gray-50 dark:bg-slate-800/70 border border-gray-200 dark:border-slate-700 space-y-2 text-xs">
+                <span className="font-bold text-[#111827] dark:text-white uppercase tracking-wider block">
+                  Protected &amp; Auto-Masked PII Categories:
+                </span>
+                <ul className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-gray-700 dark:text-slate-300">
+                  <li className="flex items-center gap-1.5 font-medium">
+                    <span className="text-[#0F766E] dark:text-teal-400">✓</span> PAN: 5 letters + 4 digits + 1 letter
+                  </li>
+                  <li className="flex items-center gap-1.5 font-medium">
+                    <span className="text-[#0F766E] dark:text-teal-400">✓</span> Aadhaar: Spaced, hyphenated &amp; 12-digit
+                  </li>
+                  <li className="flex items-center gap-1.5 font-medium">
+                    <span className="text-[#0F766E] dark:text-teal-400">✓</span> Phone: +91 and 10-digit mobile numbers
+                  </li>
+                  <li className="flex items-center gap-1.5 font-medium">
+                    <span className="text-[#0F766E] dark:text-teal-400">✓</span> Email: All standard email addresses
+                  </li>
+                  <li className="flex items-center gap-1.5 font-medium">
+                    <span className="text-[#0F766E] dark:text-teal-400">✓</span> Bank Accounts &amp; IFSC routing codes
+                  </li>
+                  <li className="flex items-center gap-1.5 font-medium">
+                    <span className="text-[#0F766E] dark:text-teal-400">✓</span> Cloud AI: Google Gemini (Sanitized only)
+                  </li>
+                </ul>
+              </div>
 
               <div className="space-y-2">
                 <label className="block text-xs font-semibold text-gray-700 dark:text-slate-300">
@@ -1035,10 +1059,9 @@ For ${partyA}                        For ${partyB}`;
                   <Lock size={18} className="text-[#0F766E] dark:text-teal-400 shrink-0 mt-0.5" />
                   <span>
                     <strong className="text-[#111827] dark:text-white">
-                      Zero Foundation Model Training:
+                      AI Provider Disclosure (Google Gemini):
                     </strong>{' '}
-                    Uploaded contracts, rent agreements, and NDAs are strictly walled off and never
-                    used to train AI models.
+                    When optional AI analysis or chatbot queries are triggered, only sanitized contract text (with all PII redacted) is sent to our AI backend powered by Google Gemini. Google Gemini does not use your customer inputs to train its foundation models.
                   </span>
                 </li>
                 <li className="flex items-start gap-3">

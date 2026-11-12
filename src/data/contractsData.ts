@@ -402,7 +402,7 @@ export const PRESET_CONTRACTS: ContractDossier[] = [
         severity: 'critical',
         category: 'Financial Liability',
         plainExplanation:
-          'Makes you 100% financially responsible for your roommates’ rent and damages, up to $5,800/month.',
+          'Makes you 100% financially responsible for your roommates’ rent and damages, up to ₹48,000/month.',
         roleImpact: {
           tenant: 'If one roommate moves out mid-semester, you and the remaining roommates must cover their rent or face eviction.',
           student: 'Your parents/guarantor could be sued for a stranger roommate’s unpaid rent.',
@@ -554,9 +554,9 @@ export const PRESET_CONTRACTS: ContractDossier[] = [
         sectionNumber: '03',
         title: 'Relocation Stipend & Return-Offer Clawback',
         verbatimText:
-          '3.2 Company shall advance Intern a one-time Housing & Relocation Stipend of $3,500.00. Should Intern’s employment terminate prior to the completion of the 12-week program for any reason, OR should Intern decline a full-time Return Offer extended by Company within six (6) months of graduation, Intern agrees to repay 100% of the gross Relocation Stipend within fourteen (14) days.',
+          '3.2 Company shall advance Intern a one-time Housing & Relocation Stipend of ₹35,000.00. Should Intern’s employment terminate prior to the completion of the 12-week program for any reason, OR should Intern decline a full-time Return Offer extended by Company within six (6) months of graduation, Intern agrees to repay 100% of the gross Relocation Stipend within fourteen (14) days.',
         plainMeaning:
-          'If they offer you a full-time job after graduation and you turn it down to work elsewhere, you have to pay back the $3,500 summer housing stipend in 14 days.',
+          'If they offer you a full-time job after graduation and you turn it down to work elsewhere, you have to pay back the ₹35,000 summer housing stipend in 14 days.',
         riskFlagId: 'flag-clawback'
       },
       {
@@ -585,13 +585,13 @@ export const PRESET_CONTRACTS: ContractDossier[] = [
         id: 'flag-clawback',
         clauseId: 'intern-1',
         tabCode: 'RF-01 · CRITICAL',
-        title: '$3,500 Return-Offer Refusal Clawback',
+        title: '₹35,000 Return-Offer Refusal Clawback',
         severity: 'critical',
         category: 'Financial Trap',
         plainExplanation:
           'Ties your summer housing stipend to accepting a future full-time job offer whose salary isn’t even stated yet.',
         roleImpact: {
-          student: 'Forces you to either pay $3,500 out of pocket as a student or accept whatever full-time offer they hand you.',
+          student: 'Forces you to either pay ₹35,000 out of pocket as a student or accept whatever full-time offer they hand you.',
           freelancer: 'Conditional fee clawback.',
           tenant: 'Housing allowance clawback.'
         },
@@ -668,143 +668,13 @@ export const PRESET_CONTRACTS: ContractDossier[] = [
   }
 ];
 
+import { analyzeContractDocument, contractDocumentToDossier } from '../lib/documentAnalysis';
+import type { RoleType } from '../lib/types';
+
 export function analyzeCustomContractText(text: string, role: UserRole): ContractDossier {
-  const words = text.trim().split(/\s+/).filter(Boolean);
-  const wordCount = Math.max(words.length, 45);
-  const lower = text.toLowerCase();
-
-  const hasIndemnity = lower.includes('indemnif') || lower.includes('hold harmless') || lower.includes('liabilit');
-  const hasAutoRenew = lower.includes('renew') || lower.includes('automatic') || lower.includes('notice');
-  const hasIP = lower.includes('intellectual property') || lower.includes('assign') || lower.includes('work made for hire') || lower.includes('perpetuity');
-  const hasNonCompete = lower.includes('non-compete') || lower.includes('competing') || lower.includes('exclusiv');
-
-  const paragraphs = text
-    .split(/\n\s*\n/)
-    .map((p) => p.trim())
-    .filter((p) => p.length > 20);
-
-  const clauses: ContractClause[] = (paragraphs.length > 0 ? paragraphs.slice(0, 5) : [text]).map((para, idx) => ({
-    id: `custom-clause-${idx + 1}`,
-    sectionNumber: String(idx + 1).padStart(2, '0'),
-    title:
-      idx === 0
-        ? 'Primary Obligation & Scope Clause'
-        : idx === 1
-        ? 'Financial, Fee & Payment Terms'
-        : idx === 2
-        ? 'Intellectual Property & Rights Allocation'
-        : `Section ${idx + 1} Covenant & Liability`,
-    verbatimText: para,
-    plainMeaning:
-      idx === 0
-        ? 'Defines your core legal obligations and gives the counterparty wide latitude over performance standards.'
-        : idx === 1
-        ? 'Governs when payments or fees are due and shifts financial risk onto the signer if deadlines are missed.'
-        : 'Transfers broad legal rights or waives standard remedies unless explicitly carved out in writing.',
-    riskFlagId: `custom-flag-${idx + 1}`
-  }));
-
-  const riskScore = Math.min(
-    92,
-    58 + (hasIndemnity ? 10 : 0) + (hasAutoRenew ? 8 : 0) + (hasIP ? 9 : 0) + (hasNonCompete ? 7 : 0)
-  );
-
-  return {
-    id: `custom-${Date.now()}`,
-    fileCode: 'FILE-CUSTOM · LIVE',
-    title: 'Uploaded Custom Contract Analysis',
-    counterparty: 'Extracted Counterparty Agreement',
-    documentType: `Custom ${role.charAt(0).toUpperCase() + role.slice(1)} Contract`,
-    recommendedRole: role,
-    lastUpdated: 'Just Now',
-    pageCount: Math.max(1, Math.ceil(wordCount / 320)),
-    wordCount,
-    riskScore,
-    riskVerdict: `${riskScore >= 75 ? 'High Caution' : 'Elevated Caution'} · Custom Document Decoded`,
-    plainSummary: {
-      headline: `Froggo analyzed ${wordCount} words through a ${role.toUpperCase()} lens and flagged asymmetrical risk allocation, broad obligations, and missing mutual protections.`,
-      overview: [
-        `This agreement places primary performance and compliance burdens on you as the ${role}, while giving the drafting party broad discretion over enforcement, remedies, and termination.`,
-        `Before signing, review the highlighted clauses below—especially around liability caps, termination notice windows, and ownership/deposit return rules—and use the generated questions to request balanced mutual language.`
-      ],
-      keyObligations: [
-        {
-          label: 'Risk Asymmetry',
-          detail: 'Drafted heavily in favor of the issuing party',
-          metric: `${riskScore}/100 Risk`
-        },
-        {
-          label: 'Termination Balance',
-          detail: 'One-sided cancellation rights without reciprocal cure window',
-          metric: 'Unbalanced'
-        },
-        {
-          label: 'Liability Exposure',
-          detail: hasIndemnity ? 'Broad indemnification language detected' : 'No explicit monetary liability cap found',
-          metric: 'Uncapped'
-        },
-        {
-          label: 'Cure Period',
-          detail: 'Grace period to fix alleged breaches before penalty',
-          metric: '0 Days Stated'
-        }
-      ]
-    },
-    clauses,
-    riskFlags: clauses.slice(0, 3).map((cl, i) => ({
-      id: `custom-flag-${i + 1}`,
-      clauseId: cl.id,
-      tabCode: `RF-0${i + 1} · ${i === 0 ? 'CRITICAL' : 'WARNING'}`,
-      title:
-        i === 0
-          ? 'Asymmetric Obligation & Discretion Language'
-          : i === 1
-          ? 'Uncapped Financial / Penalty Exposure'
-          : 'Broad Rights Waiver Without Mutual Reciprocity',
-      severity: i === 0 ? 'critical' : 'warning',
-      category: i === 0 ? 'Core Obligations' : i === 1 ? 'Financial Risk' : 'Legal Remedies',
-      plainExplanation: cl.plainMeaning,
-      roleImpact: {
-        freelancer: 'Leaves your invoice payout and liability exposed without a mutual cap.',
-        tenant: 'Shifts repair, fee, or lock-in burdens onto the tenant without a cure period.',
-        student: 'Binds you to strict obligations without an academic or early-exit safeguard.'
-      },
-      verbatimExcerpt: `"${cl.verbatimText.slice(0, 180)}${cl.verbatimText.length > 180 ? '...' : ''}"`
-    })),
-    missingClauses: [
-      {
-        id: 'custom-missing-1',
-        tabCode: 'MC-01 · MISSING',
-        title: '14-Day Written Notice & Opportunity to Cure',
-        importance: 'Essential',
-        whyYouNeedIt:
-          'Ensures the other party cannot penalize or terminate you immediately over a minor misunderstanding without giving you 14 days to fix it.',
-        suggestedWording:
-          '"Neither party may terminate this Agreement for breach or assess penalties unless the breaching party fails to cure such breach within fourteen (14) days after receiving written notice."'
-      },
-      {
-        id: 'custom-missing-2',
-        tabCode: 'MC-02 · MISSING',
-        title: 'Mutual Limitation of Liability Cap',
-        importance: 'Essential',
-        whyYouNeedIt:
-          'Caps your worst-case financial exposure to the actual dollar value of the agreement.',
-        suggestedWording:
-          '"In no event shall either party’s aggregate liability exceed the total amounts paid or payable under this Agreement in the six (6) months preceding the claim."'
-      }
-    ],
-    negotiationQuestions: [
-      {
-        id: 'custom-neg-1',
-        targetClause: 'Section 01 · Mutual Cure Period & Liability Cap',
-        questionToAsk:
-          'Can we add a mutual 14-day notice-and-cure period before any penalty or termination takes effect, and cap liability at the contract value?',
-        emailSnippet:
-          'Hi — thanks for sending the agreement over! Before I sign, could we make two quick standard updates: (1) add a 14-day written notice-and-cure window for any alleged breach, and (2) include a mutual limitation of liability capped at the fees paid under the agreement?',
-        leverageNote: 'Framing edits as "making the clause mutual" is the highest-converting negotiation tactic.'
-      }
-    ]
-  };
+  const roleType: RoleType = role === 'tenant' ? 'Tenant' : role === 'student' ? 'Student' : 'Freelancer';
+  const doc = analyzeContractDocument(text, 'Uploaded Contract', roleType);
+  return contractDocumentToDossier(doc);
 }
 
 // ============================================================================

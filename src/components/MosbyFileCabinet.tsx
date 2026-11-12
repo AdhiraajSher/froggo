@@ -110,9 +110,9 @@ export const MOSBY_FOLDER_LAYERS: FolderLayerData[] = [
         tabBg: '#3B1E8C',
         tabText: '#FFFFFF',
         offsetLeft: '3%',
-        headline: 'Section 3.2 · $3,500 Return-Offer Refusal Repayment',
+        headline: 'Section 3.2 · ₹35,000 Return-Offer Refusal Repayment',
         summary:
-          'Turns your summer housing stipend into a conditional loan: if you decline their full-time return offer upon graduation, you must wire back 100% of the $3,500 gross stipend within 14 calendar days.',
+          'Turns your summer housing stipend into a conditional loan: if you decline their full-time return offer upon graduation, you must wire back 100% of the ₹35,000 gross stipend within 14 calendar days.',
         riskScore: 74,
         keyTrap: 'Repayment triggered even after completing the full 12-week summer internship.',
         clauseQuote:
